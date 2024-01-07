@@ -502,22 +502,22 @@ static void frame_init_lowres_core( pixel *src0, pixel *dst0, pixel *dsth, pixel
         dstc += dst_stride;
     }
 }
-
+//函数接受一些输入参数，包括目标数组dst，传播输入数组propagate_in，帧内成本数组intra_costs，帧间成本数组inter_costs，反量化系数数组inv_qscales，帧率因子fps_factor，以及长度len
 /* Estimate the total amount of influence on future quality that could be had if we
  * were to improve the reference samples used to inter predict any given macroblock. */
 static void mbtree_propagate_cost( int16_t *dst, uint16_t *propagate_in, uint16_t *intra_costs,
                                    uint16_t *inter_costs, uint16_t *inv_qscales, float *fps_factor, int len )
 {
-    float fps = *fps_factor;
-    for( int i = 0; i < len; i++ )
+    float fps = *fps_factor;//获取帧率因子fps
+    for( int i = 0; i < len; i++ )//遍历一行中的每个宏块
     {
-        int intra_cost = intra_costs[i];
+        int intra_cost = intra_costs[i];//计算帧内成本intra_cost
         int inter_cost = X264_MIN(intra_costs[i], inter_costs[i] & LOWRES_COST_MASK);
-        float propagate_intra  = intra_cost * inv_qscales[i];
-        float propagate_amount = propagate_in[i] + propagate_intra*fps;
-        float propagate_num    = intra_cost - inter_cost;
-        float propagate_denom  = intra_cost;
-        dst[i] = X264_MIN((int)(propagate_amount * propagate_num / propagate_denom + 0.5f), 32767);
+        float propagate_intra  = intra_cost * inv_qscales[i];//算帧内遗传量propagate_intra，即帧内成本乘以反量化系数
+        float propagate_amount = propagate_in[i] + propagate_intra*fps;//计算遗传量propagate_amount，即遗传输入量propagate_in加上帧内传播量乘以帧率因子
+        float propagate_num    = intra_cost - inter_cost;//计算遗传分子propagate_num，即帧内成本减去帧间成本
+        float propagate_denom  = intra_cost;//计算遗传分母propagate_denom，即帧内成本
+        dst[i] = X264_MIN((int)(propagate_amount * propagate_num / propagate_denom + 0.5f), 32767);//计算目标数组dst[i]，即将传播量乘以传播分子除以传播分母并四舍五入后取整，保证结果不超过32767
     }
 }
 
@@ -530,27 +530,27 @@ static void mbtree_propagate_list( x264_t *h, uint16_t *ref_costs, int16_t (*mvs
     unsigned height = h->mb.i_mb_height;
 
     for( int i = 0; i < len; i++ )
-    {
+    {   //根据低分辨率成本数组的值判断是否使用了当前列表
         int lists_used = lowres_costs[i]>>LOWRES_COST_SHIFT;
-
+        //如果没有使用当前列表，则继续到下一个位置
         if( !(lists_used & (1 << list)) )
             continue;
-
+        //获取遗传量listamount
         int listamount = propagate_amount[i];
         /* Apply bipred weighting. */
-        if( lists_used == 3 )
+        if( lists_used == 3 )//如果使用了两个列表（双向预测），根据双向预测权重对传播量进行加权
             listamount = (listamount * bipred_weight + 32) >> 6;
 
         /* Early termination for simple case of mv0. */
-        if( !M32( mvs[i] ) )
+        if( !M32( mvs[i] ) )//如果运动矢量为零（表示没有运动），则将遗传量添加到参考成本中并继续到下一个位置
         {
             MC_CLIP_ADD( ref_costs[mb_y*stride + i], listamount );
             continue;
         }
-
+        //计算当前运动矢量的坐标和索引
         int x = mvs[i][0];
         int y = mvs[i][1];
-        unsigned mbx = (unsigned)((x>>5)+i);
+        unsigned mbx = (unsigned)((x>>5)+i);//根据坐标和权重计算四个索引的权重
         unsigned mby = (unsigned)((y>>5)+mb_y);
         unsigned idx0 = mbx + mby * stride;
         unsigned idx2 = idx0 + stride;
@@ -559,7 +559,7 @@ static void mbtree_propagate_list( x264_t *h, uint16_t *ref_costs, int16_t (*mvs
         int idx0weight = (32-y)*(32-x);
         int idx1weight = (32-y)*x;
         int idx2weight = y*(32-x);
-        int idx3weight = y*x;
+        int idx3weight = y*x;//根据索引的位置，将权重添加到参考成本中
         idx0weight = (idx0weight * listamount + 512) >> 10;
         idx1weight = (idx1weight * listamount + 512) >> 10;
         idx2weight = (idx2weight * listamount + 512) >> 10;

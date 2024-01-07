@@ -67,63 +67,63 @@ static void lookahead_update_last_nonb( x264_t *h, x264_frame_t *new_nonb )
 #if HAVE_THREAD
 static void lookahead_slicetype_decide( x264_t *h )
 {
-    x264_slicetype_decide( h );
+    x264_slicetype_decide( h );//对当前帧进行切片类型的决策
 
-    lookahead_update_last_nonb( h, h->lookahead->next.list[0] );
-    int shift_frames = h->lookahead->next.list[0]->i_bframes + 1;
-
+    lookahead_update_last_nonb( h, h->lookahead->next.list[0] );//更新最后一个非 B 帧（非 B-frame）的信息，参数为预测缓冲区的下一步帧列表的第一个帧
+    int shift_frames = h->lookahead->next.list[0]->i_bframes + 1;//计算需要移动的帧数 shift_frames，取下一步帧列表的第一个帧的 B 帧数加1
+    //锁定输出帧缓冲区的互斥锁
     x264_pthread_mutex_lock( &h->lookahead->ofbuf.mutex );
-    while( h->lookahead->ofbuf.i_size == h->lookahead->ofbuf.i_max_size )
+    while( h->lookahead->ofbuf.i_size == h->lookahead->ofbuf.i_max_size )//当输出帧缓冲区的大小达到最大值 h->lookahead->ofbuf.i_max_size 时，等待空闲条件变量的信号
         x264_pthread_cond_wait( &h->lookahead->ofbuf.cv_empty, &h->lookahead->ofbuf.mutex );
-
+    //锁定下一步帧列表的互斥锁
     x264_pthread_mutex_lock( &h->lookahead->next.mutex );
-    lookahead_shift( &h->lookahead->ofbuf, &h->lookahead->next, shift_frames );
-    x264_pthread_mutex_unlock( &h->lookahead->next.mutex );
-
+    lookahead_shift( &h->lookahead->ofbuf, &h->lookahead->next, shift_frames );//将帧数据从下一步帧列表移动到输出帧缓冲区，移动的帧数为 shift_frames
+    x264_pthread_mutex_unlock( &h->lookahead->next.mutex );//解锁下一步帧列表的互斥锁
+    //如果预测缓冲区启用了关键帧分析（MB-tree和VBV lookahead），并且最后一个非 B 帧为 I 帧（帧类型为 I-frame）
     /* For MB-tree and VBV lookahead, we have to perform propagation analysis on I-frames too. */
     if( h->lookahead->b_analyse_keyframe && IS_X264_TYPE_I( h->lookahead->last_nonb->i_type ) )
         x264_slicetype_analyse( h, shift_frames );
 
-    x264_pthread_mutex_unlock( &h->lookahead->ofbuf.mutex );
+    x264_pthread_mutex_unlock( &h->lookahead->ofbuf.mutex );//解锁输出帧缓冲区的互斥锁
 }
 
 REALIGN_STACK static void *lookahead_thread( x264_t *h )
 {
-    while( 1 )
+    while( 1 )//进入一个无限循环，表示预测缓冲区线程的运行
     {
-        x264_pthread_mutex_lock( &h->lookahead->ifbuf.mutex );
-        if( h->lookahead->b_exit_thread )
+        x264_pthread_mutex_lock( &h->lookahead->ifbuf.mutex );//锁定输入帧列表的互斥锁
+        if( h->lookahead->b_exit_thread )//检查是否需要退出线程
         {
             x264_pthread_mutex_unlock( &h->lookahead->ifbuf.mutex );
             break;
         }
-        x264_pthread_mutex_lock( &h->lookahead->next.mutex );
-        int shift = X264_MIN( h->lookahead->next.i_max_size - h->lookahead->next.i_size, h->lookahead->ifbuf.i_size );
-        lookahead_shift( &h->lookahead->next, &h->lookahead->ifbuf, shift );
-        x264_pthread_mutex_unlock( &h->lookahead->next.mutex );
+        x264_pthread_mutex_lock( &h->lookahead->next.mutex );//锁定下一步帧列表的互斥锁
+        int shift = X264_MIN( h->lookahead->next.i_max_size - h->lookahead->next.i_size, h->lookahead->ifbuf.i_size );//计算需要移动的帧数 shift，取预测缓冲区的帧数和下一步帧列表的剩余空间的较小值
+        lookahead_shift( &h->lookahead->next, &h->lookahead->ifbuf, shift );//调用 lookahead_shift 函数将帧数据从输入帧列表移动到下一步帧列表
+        x264_pthread_mutex_unlock( &h->lookahead->next.mutex );//解锁下一步帧列表的互斥锁
         if( h->lookahead->next.i_size <= h->lookahead->i_slicetype_length + h->param.b_vfr_input )
-        {
-            while( !h->lookahead->ifbuf.i_size && !h->lookahead->b_exit_thread )
+        {//检查下一个、步帧列表的大小是否小于等于切片类型长度加上参数 b_vfr_input
+            while( !h->lookahead->ifbuf.i_size && !h->lookahead->b_exit_thread )//在输入帧列表的大小为零且线程不需要退出的情况下，等待填充条件变量的信号
                 x264_pthread_cond_wait( &h->lookahead->ifbuf.cv_fill, &h->lookahead->ifbuf.mutex );
             x264_pthread_mutex_unlock( &h->lookahead->ifbuf.mutex );
         }
         else
-        {
+        {   //如果下一个帧列表的大小大于切片类型长度加上参数 b_vfr_input
             x264_pthread_mutex_unlock( &h->lookahead->ifbuf.mutex );
-            lookahead_slicetype_decide( h );
+            lookahead_slicetype_decide( h );//进行切片类型的决策
         }
     }   /* end of input frames */
-    x264_pthread_mutex_lock( &h->lookahead->ifbuf.mutex );
-    x264_pthread_mutex_lock( &h->lookahead->next.mutex );
+    x264_pthread_mutex_lock( &h->lookahead->ifbuf.mutex );//再次锁定输入帧列表和下一步帧列表的互斥锁
+    x264_pthread_mutex_lock( &h->lookahead->next.mutex );//调用 lookahead_shift 函数将剩余的输入帧移动到下一步帧列表
     lookahead_shift( &h->lookahead->next, &h->lookahead->ifbuf, h->lookahead->ifbuf.i_size );
-    x264_pthread_mutex_unlock( &h->lookahead->next.mutex );
-    x264_pthread_mutex_unlock( &h->lookahead->ifbuf.mutex );
+    x264_pthread_mutex_unlock( &h->lookahead->next.mutex );//解锁下一步帧列表的互斥锁
+    x264_pthread_mutex_unlock( &h->lookahead->ifbuf.mutex );//解锁输入帧列表的互斥锁
     while( h->lookahead->next.i_size )
-        lookahead_slicetype_decide( h );
-    x264_pthread_mutex_lock( &h->lookahead->ofbuf.mutex );
-    h->lookahead->b_thread_active = 0;
-    x264_pthread_cond_broadcast( &h->lookahead->ofbuf.cv_fill );
-    x264_pthread_mutex_unlock( &h->lookahead->ofbuf.mutex );
+        lookahead_slicetype_decide( h );//当下一步帧列表仍有帧时，执行切片类型的决策，即调用 lookahead_slicetype_decide 函数
+    x264_pthread_mutex_lock( &h->lookahead->ofbuf.mutex );//锁定输出帧缓冲区的互斥锁
+    h->lookahead->b_thread_active = 0;//将预测缓冲区的线程活跃标志 h->lookahead->b_thread_active 设置为0
+    x264_pthread_cond_broadcast( &h->lookahead->ofbuf.cv_fill );//广播填充条件变量的信号，以通知等待该变量的线程可以继续执行
+    x264_pthread_mutex_unlock( &h->lookahead->ofbuf.mutex );//解锁输出帧缓冲区的互斥锁
     return NULL;
 }
 
@@ -190,10 +190,10 @@ void x264_lookahead_delete( x264_t *h )
 }
 
 void x264_lookahead_put_frame( x264_t *h, x264_frame_t *frame )
-{
+{   //如果存在预测线程，则调用 x264_sync_frame_list_push 函数，将帧数据 frame 推入预测缓冲区的输入帧列表
     if( h->param.i_sync_lookahead )
         x264_sync_frame_list_push( &h->lookahead->ifbuf, frame );
-    else
+    else//如果不存在预测线程，则调用 x264_sync_frame_list_push 函数，将帧数据 frame 推入预测缓冲区的下一个帧列表
         x264_sync_frame_list_push( &h->lookahead->next, frame );
 }
 

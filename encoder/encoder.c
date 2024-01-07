@@ -3334,8 +3334,8 @@ int     x264_encoder_encode( x264_t *h,
         return -1;
 #endif
 
-    if( h->i_thread_frames > 1 )
-    {
+    if( h->i_thread_frames > 1 )//表示启用了多线程编码
+    {   //代码根据当前的编码阶段选择当前线程、前一个线程和最旧的线程，并进行线程同步和速率控制的操作。然后，将当前线程设置为活动线程 h
         thread_prev    = h->thread[ h->i_thread_phase ];
         h->i_thread_phase = (h->i_thread_phase + 1) % h->i_thread_frames;
         thread_current = h->thread[ h->i_thread_phase ];
@@ -3345,13 +3345,13 @@ int     x264_encoder_encode( x264_t *h,
         h = thread_current;
     }
     else
-    {
+    {   //则将当前线程和最旧的线程都设置为 h
         thread_current =
         thread_oldest  = h;
     }
     h->i_cpb_delay_pir_offset = h->i_cpb_delay_pir_offset_next;
 
-    /* no data out */
+    /* no data out *///将 pi_nal 和 pp_nal 的值重置为默认值，表示没有输出的数据
     *pi_nal = 0;
     *pp_nal = NULL;
 
@@ -3363,32 +3363,32 @@ int     x264_encoder_encode( x264_t *h,
             x264_log( h, X264_LOG_ERROR, "lookahead thread is already stopped\n" );
             return -1;
         }
-
+        //从编码器的未使用帧队列中取出一个帧 fenc
         /* 1: Copy the picture to a frame and move it to a buffer */
         x264_frame_t *fenc = x264_frame_pop_unused( h, 0 );
         if( !fenc )
             return -1;
-
+        //输入图像 pic_in 复制到帧 fenc 中
         if( x264_frame_copy_picture( h, fenc, pic_in ) < 0 )
             return -1;
-
+        //如果编码器的宽度和高度与宏块（MB）的宽度和高度不匹配，则调用 x264_frame_expand_border_mod16 对帧进行扩展
         if( h->param.i_width != 16 * h->mb.i_mb_width ||
             h->param.i_height != 16 * h->mb.i_mb_height )
             x264_frame_expand_border_mod16( h, fenc );
-
+        //设置帧的帧号 i_frame 为 h->frames.i_input++
         fenc->i_frame = h->frames.i_input++;
-
+        //如果帧号为 0，则将帧的时间戳 i_pts 赋值给 h->frames.i_first_pts
         if( fenc->i_frame == 0 )
             h->frames.i_first_pts = fenc->i_pts;
-        if( h->frames.i_bframe_delay && fenc->i_frame == h->frames.i_bframe_delay )
+        if( h->frames.i_bframe_delay && fenc->i_frame == h->frames.i_bframe_delay )//如果启用了 B 帧，并且当前帧为 B 帧延迟帧（b-frame delay），则计算 B 帧延迟时间
             h->frames.i_bframe_delay_time = fenc->i_pts - h->frames.i_first_pts;
-
+        //如果输入帧的时间戳小于等于已知的最大时间戳 h->frames.i_largest_pts，则输出警告信息
         if( h->param.b_vfr_input && fenc->i_pts <= h->frames.i_largest_pts )
             x264_log( h, X264_LOG_WARNING, "non-strictly-monotonic PTS\n" );
-
+        //更新最大时间戳 h->frames.i_largest_pts 和次大时间戳 h->frames.i_second_largest_pts
         h->frames.i_second_largest_pts = h->frames.i_largest_pts;
         h->frames.i_largest_pts = fenc->i_pts;
-
+        //设置帧的图像结构类型 i_pic_struct，如果是自动（PIC_STRUCT_AUTO），根据编码器参数和图像属性进行自动选择
         if( (fenc->i_pic_struct < PIC_STRUCT_AUTO) || (fenc->i_pic_struct > PIC_STRUCT_TRIPLE) )
             fenc->i_pic_struct = PIC_STRUCT_AUTO;
 
@@ -3407,24 +3407,24 @@ int     x264_encoder_encode( x264_t *h,
             else
                 fenc->i_pic_struct = PIC_STRUCT_PROGRESSIVE;
         }
-
+        //如果启用了宏块树（mb-tree）和统计读取（stat read），则调用 x264_macroblock_tree_read 读取宏块数
         if( h->param.rc.b_mb_tree && h->param.rc.b_stat_read )
         {
             if( x264_macroblock_tree_read( h, fenc, pic_in->prop.quant_offsets ) )
                 return -1;
         }
-        else
+        else//否则，调用 x264_adaptive_quant_frame 进行自适应量化
             x264_adaptive_quant_frame( h, fenc, pic_in->prop.quant_offsets );
-
+        //如果 pic_in 的 quant_offsets_free 不为空，则调用其释放函数释放 quant_offsets
         if( pic_in->prop.quant_offsets_free )
             pic_in->prop.quant_offsets_free( pic_in->prop.quant_offsets );
-
+        //如果编码器支持低分辨率编码，则调用 x264_frame_init_lowres 进行低分辨率帧初始化
         if( h->frames.b_have_lowres )
             x264_frame_init_lowres( h, fenc );
-
+        //将帧放入前瞻队列中，供切片类型决策使用
         /* 2: Place the frame into the queue for its slice type decision */
         x264_lookahead_put_frame( h, fenc );
-
+        //如果输入帧数量小于等于延迟帧数加1减去线程数，则表示还没有足够的帧用于编码，返回0，并设置 pic_out 的帧类型为自动（X264_TYPE_AUTO）
         if( h->frames.i_input <= h->frames.i_delay + 1 - h->i_thread_frames )
         {
             /* Nothing yet to encode, waiting for filling of buffers */
@@ -3433,39 +3433,39 @@ int     x264_encoder_encode( x264_t *h,
         }
     }
     else
-    {
+    {   //表示信号量用于结束前瞻线程（lookahead thread）。代码会设置 h->lookahead->b_exit_thread 为1，然后发出广播信号以通知其他等待的线程，并释放互斥锁
         /* signal kills for lookahead thread */
         x264_pthread_mutex_lock( &h->lookahead->ifbuf.mutex );
         h->lookahead->b_exit_thread = 1;
         x264_pthread_cond_broadcast( &h->lookahead->ifbuf.cv_fill );
         x264_pthread_mutex_unlock( &h->lookahead->ifbuf.mutex );
     }
-
+    //表示当前帧的计数
     h->i_frame++;
     /* 3: The picture is analyzed in the lookahead */
-    if( !h->frames.current[0] )
+    if( !h->frames.current[0] )//是否需要进行前瞻分析。如果当前没有可用的帧，则调用 x264_lookahead_get_frames进行前瞻分析
         x264_lookahead_get_frames( h );
-
+    //检查当前帧是否为空，并且前瞻队列是否为空。如果是，则调用 encoder_frame_end 结束帧编码过程，并返回相应的结果
     if( !h->frames.current[0] && x264_lookahead_is_empty( h ) )
         return encoder_frame_end( thread_oldest, thread_current, pp_nal, pi_nal, pic_out );
 
     /* ------------------- Get frame to be encoded ------------------------- */
-    /* 4: get picture to encode */
+    /* 4: get picture to encode *///代码调用 x264_frame_shift 获取要进行编码的帧 h->fenc
     h->fenc = x264_frame_shift( h->frames.current );
-
+    //如果编码器参数中启用了分片线程（sliced threads），则代码会等待前一帧的重构过程完成
     /* If applicable, wait for previous frame reconstruction to finish */
     if( h->param.b_sliced_threads )
         if( threadpool_wait_all( h ) < 0 )
             return -1;
-
+    //如果当前帧是第一帧（h->i_frame == 0），则将当前帧的 i_reordered_pts 赋值给 h->i_reordered_pts_delay
     if( h->i_frame == 0 )
         h->i_reordered_pts_delay = h->fenc->i_reordered_pts;
-    if( h->reconfig )
+    if( h->reconfig )//如果编码器需要重新配置（h->reconfig == 1），则调用 x264_encoder_reconfig_apply 应用新的参数配置，并将 h->reconfig 设置为0
     {
         x264_encoder_reconfig_apply( h, &h->reconfig_h->param );
         h->reconfig = 0;
     }
-    if( h->fenc->param )
+    if( h->fenc->param )//如果当前帧的参数存在（h->fenc->param != NULL），则调用 x264_encoder_reconfig_apply 应用参数配置，并释放参数结构体
     {
         x264_encoder_reconfig_apply( h, h->fenc->param );
         if( h->fenc->param->param_free )
@@ -3474,14 +3474,14 @@ int     x264_encoder_encode( x264_t *h,
             h->fenc->param->param_free( h->fenc->param );
             h->fenc->param = NULL;
         }
-    }
+    }//代码调用 x264_ratecontrol_zone_init 初始化码率控制相关的数据结构
     x264_ratecontrol_zone_init( h );
-
+    //调用 reference_update 更新参考帧列表
     // ok to call this before encoding any frames, since the initial values of fdec have b_kept_as_ref=0
     if( reference_update( h ) )
         return -1;
-    h->fdec->i_lines_completed = -1;
-
+    h->fdec->i_lines_completed = -1;//将当前解码帧的 i_lines_completed 设置为-1，表示尚未完成解码
+    //如果当前编码帧不是I帧，则代码检查是否还有有效的参考帧。如果没有有效的参考帧，则将当前帧设置为关键帧（I帧）
     if( !IS_X264_TYPE_I( h->fenc->i_type ) )
     {
         int valid_refs_left = 0;
@@ -3495,7 +3495,7 @@ int     x264_encoder_encode( x264_t *h,
             h->fenc->i_type = X264_TYPE_IDR;
         }
     }
-
+    //如果当前编码帧是关键帧，则更新最后一个关键帧的帧号和最后一个IDR帧的帧号
     if( h->fenc->b_keyframe )
     {
         h->frames.i_last_keyframe = h->fenc->i_frame;
@@ -3504,18 +3504,18 @@ int     x264_encoder_encode( x264_t *h,
             h->i_frame_num = 0;
             h->frames.i_last_idr = h->fenc->i_frame;
         }
-    }
+    }//代码将一些计数器和标志重置为初始值，为当前解码帧和编码帧设置 POC（Picture Order Count），根据帧号计算得出
     h->sh.i_mmco_command_count =
     h->sh.i_mmco_remove_from_end = 0;
     h->b_ref_reorder[0] =
     h->b_ref_reorder[1] = 0;
     h->fdec->i_poc =
     h->fenc->i_poc = 2 * ( h->fenc->i_frame - X264_MAX( h->frames.i_last_idr, 0 ) );
-
+    //这段代码用于设置帧的上下文信息，并准备进行比特流的写入
     /* ------------------- Setup frame context ----------------------------- */
-    /* 5: Init data dependent of frame type */
+    /* 5: Init data dependent of frame type *///根据当前编码帧的类型（h->fenc->i_type），进行不同的设置和处理
     if( h->fenc->i_type == X264_TYPE_IDR )
-    {
+    {   //如果当前编码帧是 IDR 帧（关键帧），则重置参考帧列表，设置相应的 NAL 单元类型和参考级别（i_nal_type 和 i_nal_ref_idc），将当前切片类型（h->sh.i_type）设置为 I 帧类型，设置最后一个开放 GOP 的 POC 值为-1
         /* reset ref pictures */
         i_nal_type    = NAL_SLICE_IDR;
         i_nal_ref_idc = NAL_PRIORITY_HIGHEST;
@@ -3524,7 +3524,7 @@ int     x264_encoder_encode( x264_t *h,
         h->frames.i_poc_last_open_gop = -1;
     }
     else if( h->fenc->i_type == X264_TYPE_I )
-    {
+    {   //如果当前编码帧是 I 帧，则设置相应的 NAL 单元类型和参考级别，将当前切片类型设置为 I 帧类型，重置参考层次结构，并根据是否开启开放 GOP 设置最后一个开放 GOP 的 POC 值
         i_nal_type    = NAL_SLICE;
         i_nal_ref_idc = NAL_PRIORITY_HIGH; /* Not completely true but for now it is (as all I/P are kept as ref)*/
         h->sh.i_type = SLICE_TYPE_I;
@@ -3533,7 +3533,7 @@ int     x264_encoder_encode( x264_t *h,
             h->frames.i_poc_last_open_gop = h->fenc->b_keyframe ? h->fenc->i_poc : -1;
     }
     else if( h->fenc->i_type == X264_TYPE_P )
-    {
+    {   //如果当前编码帧是 P 帧，则设置相应的 NAL 单元类型和参考级别，将当前切片类型设置为 P 帧类型，重置参考层次结构，并将最后一个开放 GOP 的 POC 值设置为-1
         i_nal_type    = NAL_SLICE;
         i_nal_ref_idc = NAL_PRIORITY_HIGH; /* Not completely true but for now it is (as all I/P are kept as ref)*/
         h->sh.i_type = SLICE_TYPE_P;
@@ -3541,29 +3541,29 @@ int     x264_encoder_encode( x264_t *h,
         h->frames.i_poc_last_open_gop = -1;
     }
     else if( h->fenc->i_type == X264_TYPE_BREF )
-    {
+    {   //如果当前编码帧是 B 参考帧，则设置相应的 NAL 单元类型和参考级别，将当前切片类型设置为 B 帧类型，重置参考层次结构
         i_nal_type    = NAL_SLICE;
         i_nal_ref_idc = h->param.i_bframe_pyramid == X264_B_PYRAMID_STRICT ? NAL_PRIORITY_LOW : NAL_PRIORITY_HIGH;
         h->sh.i_type = SLICE_TYPE_B;
         reference_hierarchy_reset( h );
     }
     else    /* B frame */
-    {
+    {   //如果当前编码帧是 B 帧，则设置相应的 NAL 单元类型和参考级别，将当前切片类型设置为 B 帧类型
         i_nal_type    = NAL_SLICE;
         i_nal_ref_idc = NAL_PRIORITY_DISPOSABLE;
         h->sh.i_type = SLICE_TYPE_B;
     }
-
+    //将解码帧的类型和帧号设置为与编码帧相同
     h->fdec->i_type = h->fenc->i_type;
     h->fdec->i_frame = h->fenc->i_frame;
     h->fenc->b_kept_as_ref =
-    h->fdec->b_kept_as_ref = i_nal_ref_idc != NAL_PRIORITY_DISPOSABLE && h->param.i_keyint_max > 1;
-
+    h->fdec->b_kept_as_ref = i_nal_ref_idc != NAL_PRIORITY_DISPOSABLE && h->param.i_keyint_max > 1;//根据参考级别和最大关键帧间隔的设置，确定编码帧和解码帧是否保留为参考帧
+    //代码将解码帧的宏块信息和释放函数设置为与编码帧相同，并清空编码帧的宏块信息和释放函数
     h->fdec->mb_info = h->fenc->mb_info;
     h->fdec->mb_info_free = h->fenc->mb_info_free;
     h->fenc->mb_info = NULL;
     h->fenc->mb_info_free = NULL;
-
+    //代码将解码帧的呈现时间戳（PTS）设置为编码帧的PTS，并根据B帧延迟的设置，计算解码帧的解码时间戳（DTS）
     h->fdec->i_pts = h->fenc->i_pts;
     if( h->frames.i_bframe_delay )
     {
@@ -3575,17 +3575,17 @@ int     x264_encoder_encode( x264_t *h,
     }
     else
         h->fdec->i_dts = h->fenc->i_reordered_pts;
-    if( h->fenc->i_type == X264_TYPE_IDR )
+    if( h->fenc->i_type == X264_TYPE_IDR )//当前编码帧是 IDR 帧，则将最后一个 IDR 帧的PTS设置为解码帧的PTS
         h->i_last_idr_pts = h->fdec->i_pts;
 
     /* ------------------- Init                ----------------------------- */
-    /* build ref list 0/1 */
+    /* build ref list 0/1 *///代码调用 reference_build_list 构建参考帧列表
     reference_build_list( h, h->fdec->i_poc );
 
     /* ---------------------- Write the bitstream -------------------------- */
     /* Init bitstream context */
     if( h->param.b_sliced_threads )
-    {
+    {   //如果启用了分片线程（sliced threads），则为每个线程初始化比特流上下文，并将相关的计数器重置为初始值
         for( int i = 0; i < h->param.i_threads; i++ )
         {
             bs_init( &h->thread[i]->out.bs, h->thread[i]->out.p_bitstream, h->thread[i]->out.i_bitstream );
@@ -3593,7 +3593,7 @@ int     x264_encoder_encode( x264_t *h,
         }
     }
     else
-    {
+    {   //如果没有启用分片线程，则直接初始化主线程的比特流上下文，并将相关的计数器重置为初始值
         bs_init( &h->out.bs, h->out.p_bitstream, h->out.i_bitstream );
         h->out.i_nal = 0;
     }
@@ -3601,7 +3601,7 @@ int     x264_encoder_encode( x264_t *h,
     if( h->param.b_aud )
     {
         int pic_type;
-
+        //根据当前切片类型（h->sh.i_type）确定 pic_type 的值，用于指示帧的类型。如果是 I 帧，则 pic_type 为 0，如果是 P 帧，则为 1，如果是 B 帧，则为 2，否则为 7
         if( h->sh.i_type == SLICE_TYPE_I )
             pic_type = 0;
         else if( h->sh.i_type == SLICE_TYPE_P )
@@ -3610,23 +3610,23 @@ int     x264_encoder_encode( x264_t *h,
             pic_type = 2;
         else
             pic_type = 7;
-
+        //调用 nal_start 函数开始一个 AUD NAL 单元，设置 NAL 单元类型为 NAL_AUD，参考级别为 NAL_PRIORITY_DISPOSABLE
         nal_start( h, NAL_AUD, NAL_PRIORITY_DISPOSABLE );
-        bs_write( &h->out.bs, 3, pic_type );
-        bs_rbsp_trailing( &h->out.bs );
-        bs_flush( &h->out.bs );
+        bs_write( &h->out.bs, 3, pic_type );//使用 bs_write 函数将 pic_type（占3位）写入比特流中
+        bs_rbsp_trailing( &h->out.bs );//调用 bs_rbsp_trailing 函数处理比特流的尾部对齐
+        bs_flush( &h->out.bs );//调用 bs_flush 函数将剩余的比特写入比特流
         if( nal_end( h ) )
             return -1;
-        overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD;
+        overhead += h->out.nal[h->out.i_nal-1].i_payload + NALU_OVERHEAD;//计算 AUD NAL 单元的开销（overhead），并将其添加到 overhead 变量中
     }
-
+    //代码设置编码帧的 NAL 单元类型和参考级别为给定的
     h->i_nal_type = i_nal_type;
     h->i_nal_ref_idc = i_nal_ref_idc;
-
+    //如果启用了帧内刷新（intra refresh），则根据编码帧类型进行不同的处理
     if( h->param.b_intra_refresh )
     {
         if( IS_X264_TYPE_I( h->fenc->i_type ) )
-        {
+        {   //如果当前编码帧是 I 帧，将解码帧的 i_frames_since_pir 设置为 0，将解码帧的 f_pir_position 设置为宏块的宽度，将 b_queued_intra_refresh 设置为 0
             h->fdec->i_frames_since_pir = 0;
             h->b_queued_intra_refresh = 0;
             /* PIR is currently only supported with ref == 1, so any intra frame effectively refreshes
@@ -3658,51 +3658,51 @@ int     x264_encoder_encode( x264_t *h,
             }
         }
     }
-
+    //如果编码帧的 b_keyframe 为真，表示当前帧是关键帧
     if( h->fenc->b_keyframe )
     {
-        /* Write SPS and PPS */
+        /* Write SPS and PPS *///如果参数 b_repeat_headers 为真，生成序列参数集（SPS）和图像参数集（PPS）
         if( h->param.b_repeat_headers )
-        {
+        {   //对于 SPS，调用 nal_start 函数开始一个 SPS NAL 单元，设置 NAL 单元类型为 NAL_SPS，参考级别为 NAL_PRIORITY_HIGHEST。然后调用 x264_sps_write 函数将 SPS 写入到比特流中
             /* generate sequence parameters */
             nal_start( h, NAL_SPS, NAL_PRIORITY_HIGHEST );
             x264_sps_write( &h->out.bs, h->sps );
             if( nal_end( h ) )
                 return -1;
             /* Pad AUD/SPS to 256 bytes like Panasonic */
-            if( h->param.i_avcintra_class )
+            if( h->param.i_avcintra_class )//根据参数配置将 AUD/SPS 填充到256字节，计算填充的长度并赋值给 i_padding 字段
                 h->out.nal[h->out.i_nal-1].i_padding = 256 - bs_pos( &h->out.bs ) / 8 - 2*NALU_OVERHEAD;
-            overhead += h->out.nal[h->out.i_nal-1].i_payload + h->out.nal[h->out.i_nal-1].i_padding + NALU_OVERHEAD;
-
+            overhead += h->out.nal[h->out.i_nal-1].i_payload + h->out.nal[h->out.i_nal-1].i_padding + NALU_OVERHEAD;//根据 SPS NAL 单元的负载和填充的长度计算开销，并将其添加到 overhead 变量中。
+            //对于 PPS，调用 nal_start 函数开始一个 PPS NAL 单元，设置 NAL 单元类型为 NAL_PPS，参考级别为 NAL_PRIORITY_HIGHEST
             /* generate picture parameters */
             nal_start( h, NAL_PPS, NAL_PRIORITY_HIGHEST );
-            x264_pps_write( &h->out.bs, h->sps, h->pps );
+            x264_pps_write( &h->out.bs, h->sps, h->pps );//调用 x264_pps_write 函数将 PPS 写入到比特流中，需要提供 SPS 和 PPS 参数
             if( nal_end( h ) )
                 return -1;
             if( h->param.i_avcintra_class )
             {
-                int total_len = 256;
+                int total_len = 256;//根据参数配置计算 PPS NAL 单元的填充长度，并赋值给 i_padding 字段
                 /* Sony XAVC uses an oversized PPS instead of SEI padding */
                 if( h->param.i_avcintra_flavor == X264_AVCINTRA_FLAVOR_SONY )
                     total_len += h->param.i_height >= 1080 ? 18*512 : 10*512;
                 h->out.nal[h->out.i_nal-1].i_padding = total_len - h->out.nal[h->out.i_nal-1].i_payload - NALU_OVERHEAD;
-            }
+            }//根据 PPS NAL 单元的负载和填充的长度计算开销，并将其添加到 overhead 变量中
             overhead += h->out.nal[h->out.i_nal-1].i_payload + h->out.nal[h->out.i_nal-1].i_padding + NALU_OVERHEAD;
         }
-
+        //如果帧线程数为 1（i_thread_frames == 1）且 SPS 中指定了 HRD 参数（vui.b_nal_hrd_parameters_present 为真），则在 encoder_frame_end 中写入缓冲期间的 SEI（Supplemental Enhancement Information）
         /* when frame threading is used, buffering period sei is written in encoder_frame_end */
         if( h->i_thread_frames == 1 && h->sps->vui.b_nal_hrd_parameters_present )
-        {
+        {   //调用 x264_hrd_fullness 函数计算 HRD 的满度。然后，调用 nal_start 函数开始一个 SEI NAL 单元，设置 NAL 单元类型为 NAL_SEI，参考级别为 NAL_PRIORITY_DISPOSABLE
             x264_hrd_fullness( h );
             nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
-            x264_sei_buffering_period_write( h, &h->out.bs );
+            x264_sei_buffering_period_write( h, &h->out.bs );//将缓冲期间的 SEI 写入比特流中
             if( nal_end( h ) )
                return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + SEI_OVERHEAD;
         }
     }
 
-    /* write extra sei */
+    /* write extra sei *///处理额外的 SEI（Supplemental Enhancement Information）信息
     for( int i = 0; i < h->fenc->extra_sei.num_payloads; i++ )
     {
         nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
@@ -3719,14 +3719,14 @@ int     x264_encoder_encode( x264_t *h,
     }
 
     if( h->fenc->extra_sei.sei_free )
-    {
+    {   //调用该函数释放 SEI 负载的内存，并将负载指针设为 NULL
         h->fenc->extra_sei.sei_free( h->fenc->extra_sei.payloads );
         h->fenc->extra_sei.payloads = NULL;
         h->fenc->extra_sei.sei_free = NULL;
     }
 
-    if( h->fenc->b_keyframe )
-    {
+    if( h->fenc->b_keyframe )//如果当前帧是关键帧
+    {   //如果参数 b_repeat_headers 为真、当前帧是第一帧且不是 AVC-Intra 类型，则插入一个自定义的 SEI 用于标识编码器版本
         /* Avid's decoder strictly wants two SEIs for AVC-Intra so we can't insert the x264 SEI */
         if( h->param.b_repeat_headers && h->fenc->i_frame == 0 && !h->param.i_avcintra_class )
         {
@@ -3738,17 +3738,17 @@ int     x264_encoder_encode( x264_t *h,
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + SEI_OVERHEAD;
         }
-
+        //如果当前帧不是 IDR 帧，则插入一个恢复点 SEI
         if( h->fenc->i_type != X264_TYPE_IDR )
-        {
+        {   //根据参数配置计算时间到恢复点的距离，并存储在 time_to_recovery 变量中
             int time_to_recovery = h->param.b_open_gop ? 0 : X264_MIN( h->mb.i_mb_width - 1, h->param.i_keyint_max ) + h->param.i_bframe - 1;
             nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
-            x264_sei_recovery_point_write( h, &h->out.bs, time_to_recovery );
+            x264_sei_recovery_point_write( h, &h->out.bs, time_to_recovery );//接着调用 x264_sei_recovery_point_write 函数将恢复点信息写入比特流中，需要提供时间到恢复点的距离
             if( nal_end( h ) )
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + SEI_OVERHEAD;
         }
-
+        //如果参数配置中指定了主显示参数（mastering display）,则插入一个主显示参数 SEI
         if( h->param.mastering_display.b_mastering_display )
         {
             nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
@@ -3757,7 +3757,7 @@ int     x264_encoder_encode( x264_t *h,
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + SEI_OVERHEAD;
         }
-
+        //如果参数配置中指定了（content light level），则插入一个 SEI
         if( h->param.content_light_level.b_cll )
         {
             nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
@@ -3766,7 +3766,7 @@ int     x264_encoder_encode( x264_t *h,
                 return -1;
             overhead += h->out.nal[h->out.i_nal-1].i_payload + SEI_OVERHEAD;
         }
-
+        //如果参数配置中指定了alternative_transfer
         if( h->param.i_alternative_transfer != 2 )
         {
             nal_start( h, NAL_SEI, NAL_PRIORITY_DISPOSABLE );
@@ -3785,7 +3785,7 @@ int     x264_encoder_encode( x264_t *h,
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + SEI_OVERHEAD;
     }
-
+    //如果 SPS 中指定了图片时间信息（b_pic_struct_present 为真）或者指定了 NAL HRD 参数（b_nal_hrd_parameters_present 为真），则插入一个图片时间 SEI
     /* generate sei pic timing */
     if( h->sps->vui.b_pic_struct_present || h->sps->vui.b_nal_hrd_parameters_present )
     {
@@ -3795,7 +3795,7 @@ int     x264_encoder_encode( x264_t *h,
             return -1;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + SEI_OVERHEAD;
     }
-
+    //如果当前帧不是 B 帧且 h->b_sh_backup 为真，则插入一个解码参考图片标记 SEI
     /* As required by Blu-ray. */
     if( !IS_X264_TYPE_B( h->fenc->i_type ) && h->b_sh_backup )
     {
@@ -3847,57 +3847,57 @@ int     x264_encoder_encode( x264_t *h,
             return -1;
         if( nal_end( h ) )
             return -1;
-
+        //调整最后一个 SEI NAL 单元的填充长度，使其满足总长度为 total_len 的要求
         h->out.nal[h->out.i_nal-1].i_padding = total_len - h->out.nal[h->out.i_nal-1].i_payload - SEI_OVERHEAD;
         overhead += h->out.nal[h->out.i_nal-1].i_payload + h->out.nal[h->out.i_nal-1].i_padding + SEI_OVERHEAD;
     }
 
-    /* Init the rate control */
+    /* Init the rate control *///初始化码率控制器，并传入初始的 QP（Quantization Parameter）值和开销值。
     /* FIXME: Include slice header bit cost. */
     x264_ratecontrol_start( h, h->fenc->i_qpplus1, overhead*8 );
-    i_global_qp = x264_ratecontrol_qp( h );
+    i_global_qp = x264_ratecontrol_qp( h );//然后调用 x264_ratecontrol_qp 函数获取全局的 QP 值
 
     pic_out->i_qpplus1 =
     h->fdec->i_qpplus1 = i_global_qp + 1;
-
+    //如果码率控制器的统计信息已经读取并且当前帧不是关键帧
     if( h->param.rc.b_stat_read && h->sh.i_type != SLICE_TYPE_I )
-    {
+    {   //构建最优的参考帧列表
         x264_reference_build_list_optimal( h );
-        reference_check_reorder( h );
+        reference_check_reorder( h );//进行参考帧的重新排序
     }
-
+    //如果参考帧列表中有参考帧存在
     if( h->i_ref[0] )
         h->fdec->i_poc_l0ref0 = h->fref[0][0]->i_poc;
 
     /* ------------------------ Create slice header  ----------------------- */
-    slice_init( h, i_nal_type, i_global_qp );
+    slice_init( h, i_nal_type, i_global_qp );//创建一个切片头，并传入切片类型和全局 QP 值
 
     /*------------------------- Weights -------------------------------------*/
-    if( h->sh.i_type == SLICE_TYPE_B )
+    if( h->sh.i_type == SLICE_TYPE_B )//如果当前帧的切片类型是 B 帧,则进行双向预测的初始化
         x264_macroblock_bipred_init( h );
-
+    //进行加权预测的初始化
     weighted_pred_init( h );
-
+    //根据当前帧的 NAL 参考级别确定是否增加帧号
     if( i_nal_ref_idc != NAL_PRIORITY_DISPOSABLE )
         h->i_frame_num++;
-
+    //设置线程切片的起始和结束位置，并根据线程数的不同进行不同的编码方式
     /* Write frame */
     h->i_threadslice_start = 0;
     h->i_threadslice_end = h->mb.i_mb_height;
     if( h->i_thread_frames > 1 )
-    {
+    {   //如果线程数大于 1，则调用线程池的 x264_threadpool_run 函数并传入 slices_write 函数进行多线程编码
         x264_threadpool_run( h->threadpool, (void*)slices_write, h );
         h->b_thread_active = 1;
     }
     else if( h->param.b_sliced_threads )
-    {
+    {   //如果参数配置中启用了切片线程，则调用 threaded_slices_write 函数进行多线程切片编码
         if( threaded_slices_write( h ) )
             return -1;
     }
-    else
+    else//如果以上两种情况都不满足，则调用 slices_write 函数进行单线程编码
         if( (intptr_t)slices_write( h ) )
             return -1;
-
+    //返回 encoder_frame_end 函数的结果，完成整个编码过程
     return encoder_frame_end( thread_oldest, thread_current, pp_nal, pi_nal, pic_out );
 }
 
@@ -4194,29 +4194,29 @@ static void print_intra( int64_t *i_mb_count, double i_count, int b_print_pcm, c
  * x264_encoder_close:
  ****************************************************************************/
 void    x264_encoder_close  ( x264_t *h )
-{
+{   //计算 YUV 数据的大小并赋值给 i_yuv_size 变量
     int64_t i_yuv_size = FRAME_SIZE( h->param.i_width * h->param.i_height );
-    int64_t i_mb_count_size[2][7] = {{0}};
+    int64_t i_mb_count_size[2][7] = {{0}};//计算 YUV 数据的大小并赋值给 i_yuv_size 变量
     char buf[200];
-    int b_print_pcm = h->stat.i_mb_count[SLICE_TYPE_I][I_PCM]
+    int b_print_pcm = h->stat.i_mb_count[SLICE_TYPE_I][I_PCM]//用于判断是否需要打印 PCM 数据
                    || h->stat.i_mb_count[SLICE_TYPE_P][I_PCM]
                    || h->stat.i_mb_count[SLICE_TYPE_B][I_PCM];
-
+    //调用 x264_lookahead_delete 函数释放预测模块使用的资
     x264_lookahead_delete( h );
 
 #if HAVE_OPENCL
     x264_opencl_lookahead_delete( h );
     x264_opencl_function_t *ocl = h->opencl.ocl;
 #endif
-
+    //根据参数配置中的线程设置，依次释放线程池和前向预测线程池的资源
     if( h->param.b_sliced_threads )
         threadpool_wait_all( h );
-    if( h->param.i_threads > 1 )
+    if( h->param.i_threads > 1 )//如果线程数大于 1，则调用 x264_threadpool_delete 函数释放线程池资源
         x264_threadpool_delete( h->threadpool );
     if( h->param.i_lookahead_threads > 1 )
         x264_threadpool_delete( h->lookaheadpool );
     if( h->i_thread_frames > 1 )
-    {
+    {   //如果编码器的线程帧数大于 1，则遍历线程数组，如果线程的 b_thread_active 标志为真，则删除线程的编码帧
         for( int i = 0; i < h->i_thread_frames; i++ )
             if( h->thread[i]->b_thread_active )
             {
@@ -4225,24 +4225,24 @@ void    x264_encoder_close  ( x264_t *h )
             }
 
         x264_t *thread_prev = h->thread[h->i_thread_phase];
-        x264_thread_sync_ratecontrol( h, thread_prev, h );
+        x264_thread_sync_ratecontrol( h, thread_prev, h );//函数进行速率控制的同步
         x264_thread_sync_ratecontrol( thread_prev, thread_prev, h );
-        h->i_frame = thread_prev->i_frame + 1 - h->i_thread_frames;
+        h->i_frame = thread_prev->i_frame + 1 - h->i_thread_frames;//更新编码器的帧号为前一个线程的帧号加一减去线程帧数
     }
-    h->i_frame++;
+    h->i_frame++;//将编码器的帧号加一
 
-    /* Slices used and PSNR */
+    /* Slices used and PSNR *///通过一个循环遍历三种切片类型：I 帧、P 帧和 B 帧
     for( int i = 0; i < 3; i++ )
     {
         static const uint8_t slice_order[] = { SLICE_TYPE_I, SLICE_TYPE_P, SLICE_TYPE_B };
         int i_slice = slice_order[i];
-
+        //在每个切片类型的统计信息中，如果帧的数量大于零，则获取帧的数量和帧的时长
         if( h->stat.i_frame_count[i_slice] > 0 )
         {
             int i_count = h->stat.i_frame_count[i_slice];
             double dur =  h->stat.f_frame_duration[i_slice];
             if( h->param.analyse.b_psnr )
-            {
+            {   //如果参数配置中启用了 PSNR（峰值信噪比）分析，则输出帧的平均 QP（量化参数）、大小和 PSNR 值
                 x264_log( h, X264_LOG_INFO,
                           "frame %c:%-5d Avg QP:%5.2f  size:%6.0f  PSNR Mean Y:%5.2f U:%5.2f V:%5.2f Avg:%5.2f Global:%5.2f\n",
                           slice_type_to_char[i_slice],
@@ -4251,10 +4251,10 @@ void    x264_encoder_close  ( x264_t *h )
                           (double)h->stat.i_frame_size[i_slice] / i_count,
                           h->stat.f_psnr_mean_y[i_slice] / dur, h->stat.f_psnr_mean_u[i_slice] / dur, h->stat.f_psnr_mean_v[i_slice] / dur,
                           h->stat.f_psnr_average[i_slice] / dur,
-                          calc_psnr( h->stat.f_ssd_global[i_slice], dur * i_yuv_size ) );
+                          calc_psnr( h->stat.f_ssd_global[i_slice], dur * i_yuv_size ) );//计算方法是使用全局 SSD（Sum of Squared Differences）值除以 YUV 数据的总大小并乘以时长
             }
             else
-            {
+            {   //如果没有启用 PSNR 分析，则只输出帧的平均 QP 和大小
                 x264_log( h, X264_LOG_INFO,
                           "frame %c:%-5d Avg QP:%5.2f  size:%6.0f\n",
                           slice_type_to_char[i_slice],
@@ -4265,7 +4265,7 @@ void    x264_encoder_close  ( x264_t *h )
         }
     }
     if( h->param.i_bframe && h->stat.i_frame_count[SLICE_TYPE_B] )
-    {
+    {   //如果编码器参数中启用了 B 帧（双向预测帧）且存在 B 帧的统计信息
         char *p = buf;
         int den = 0;
         // weight by number of frames (including the I/P-frames) that are in a sequence of N B-frames
@@ -4273,26 +4273,26 @@ void    x264_encoder_close  ( x264_t *h )
             den += (i+1) * h->stat.i_consecutive_bframes[i];
         for( int i = 0; i <= h->param.i_bframe; i++ )
             p += sprintf( p, " %4.1f%%", 100. * (i+1) * h->stat.i_consecutive_bframes[i] / den );
-        x264_log( h, X264_LOG_INFO, "consecutive B-frames:%s\n", buf );
+        x264_log( h, X264_LOG_INFO, "consecutive B-frames:%s\n", buf );//将连续 B 帧的百分比信息打印到日志中
     }
 
     for( int i_type = 0; i_type < 2; i_type++ )
         for( int i = 0; i < X264_PARTTYPE_MAX; i++ )
-        {
+        {   //如果当前宏块类型为 D_DIRECT_8x8，则跳过该循环（因为直接预测帧类型是单独计算的）
             if( i == D_DIRECT_8x8 ) continue; /* direct is counted as its own type */
-            i_mb_count_size[i_type][x264_mb_partition_pixel_table[i]] += h->stat.i_mb_partition[i_type][i];
+            i_mb_count_size[i_type][x264_mb_partition_pixel_table[i]] += h->stat.i_mb_partition[i_type][i];//将宏块分区的数量累加到对应的类型和大小的计数器中
         }
 
-    /* MB types used */
+    /* MB types used *///分别处理三种切片类型的宏块信息
     if( h->stat.i_frame_count[SLICE_TYPE_I] > 0 )
-    {
+    {   //如果 I 帧的数量大于零，则根据统计信息生成 I 帧宏块的字符串表示，并打印到日志中
         int64_t *i_mb_count = h->stat.i_mb_count[SLICE_TYPE_I];
         double i_count = (double)h->stat.i_frame_count[SLICE_TYPE_I] * h->mb.i_mb_count / 100.0;
         print_intra( i_mb_count, i_count, b_print_pcm, buf );
         x264_log( h, X264_LOG_INFO, "mb I  %s\n", buf );
     }
     if( h->stat.i_frame_count[SLICE_TYPE_P] > 0 )
-    {
+    {   //如果 P 帧的数量大于零，则根据统计信息生成 P 帧宏块的字符串表示，并打印到日志中。同时，还打印了 P 帧宏块的分区类型的百分比信息
         int64_t *i_mb_count = h->stat.i_mb_count[SLICE_TYPE_P];
         double i_count = (double)h->stat.i_frame_count[SLICE_TYPE_P] * h->mb.i_mb_count / 100.0;
         int64_t *i_mb_size = i_mb_count_size[SLICE_TYPE_P];
@@ -4308,7 +4308,7 @@ void    x264_encoder_close  ( x264_t *h )
                   i_mb_count[P_SKIP] / i_count );
     }
     if( h->stat.i_frame_count[SLICE_TYPE_B] > 0 )
-    {
+    {   //如果 B 帧的数量大于零，则根据统计信息生成 B 帧宏块的字符串表示，并打印到日志中。同时，还打印了 B 帧宏块的分区类型、直接模式和跳过模式的百分比信息
         int64_t *i_mb_count = h->stat.i_mb_count[SLICE_TYPE_B];
         double i_count = (double)h->stat.i_frame_count[SLICE_TYPE_B] * h->mb.i_mb_count / 100.0;
         double i_mb_list_count;
@@ -4341,31 +4341,31 @@ void    x264_encoder_close  ( x264_t *h )
                      list_count[2] / i_mb_list_count );
         x264_log( h, X264_LOG_INFO, "mb B  %s\n", buf );
     }
-
+    //调用 x264_ratecontrol_summary 函数打印速率控制的摘要信息
     x264_ratecontrol_summary( h );
-
+    //首先检查不同切片类型（I、P和B）的帧数之和是否大于零。如果是，则继续进行计算和日志记录
     if( h->stat.i_frame_count[SLICE_TYPE_I] + h->stat.i_frame_count[SLICE_TYPE_P] + h->stat.i_frame_count[SLICE_TYPE_B] > 0 )
     {
 #define SUM3(p) (p[SLICE_TYPE_I] + p[SLICE_TYPE_P] + p[SLICE_TYPE_B])
 #define SUM3b(p,o) (p[SLICE_TYPE_I][o] + p[SLICE_TYPE_P][o] + p[SLICE_TYPE_B][o])
-        int64_t i_i8x8 = SUM3b( h->stat.i_mb_count, I_8x8 );
-        int64_t i_intra = i_i8x8 + SUM3b( h->stat.i_mb_count, I_4x4 )
+        int64_t i_i8x8 = SUM3b( h->stat.i_mb_count, I_8x8 );//通过SUM3b宏计算得到的h->stat.i_mb_count数组中I_8x8切片类型的值之和
+        int64_t i_intra = i_i8x8 + SUM3b( h->stat.i_mb_count, I_4x4 )//通过对h->stat.i_mb_count数组中的不同切片类型进行求和得到的值。包括I_8x8、I_4x4和I_16x16切片类型
                                  + SUM3b( h->stat.i_mb_count, I_16x16 );
-        int64_t i_all_intra = i_intra + SUM3b( h->stat.i_mb_count, I_PCM );
-        int64_t i_skip = SUM3b( h->stat.i_mb_count, P_SKIP )
+        int64_t i_all_intra = i_intra + SUM3b( h->stat.i_mb_count, I_PCM );//将i_intra值与h->stat.i_mb_count数组中I_PCM切片类型的值之和相加得到的值
+        int64_t i_skip = SUM3b( h->stat.i_mb_count, P_SKIP )//将h->stat.i_mb_count数组中P_SKIP和B_SKIP切片类型的值之和得到的值
                        + SUM3b( h->stat.i_mb_count, B_SKIP );
-        const int i_count = h->stat.i_frame_count[SLICE_TYPE_I] +
+        const int i_count = h->stat.i_frame_count[SLICE_TYPE_I] +//不同切片类型的帧数之和
                             h->stat.i_frame_count[SLICE_TYPE_P] +
                             h->stat.i_frame_count[SLICE_TYPE_B];
-        int64_t i_mb_count = (int64_t)i_count * h->mb.i_mb_count;
-        int64_t i_inter = i_mb_count - i_skip - i_all_intra;
-        const double duration = h->stat.f_frame_duration[SLICE_TYPE_I] +
+        int64_t i_mb_count = (int64_t)i_count * h->mb.i_mb_count;//将帧数乘以每帧的宏块数得到的值
+        int64_t i_inter = i_mb_count - i_skip - i_all_intra;//通过减去i_skip和i_all_intra的值得到的i_mb_count值
+        const double duration = h->stat.f_frame_duration[SLICE_TYPE_I] +//不同切片类型的帧持续时间之和
                                 h->stat.f_frame_duration[SLICE_TYPE_P] +
                                 h->stat.f_frame_duration[SLICE_TYPE_B];
-        float f_bitrate = SUM3(h->stat.i_frame_size) / duration / 125;
+        float f_bitrate = SUM3(h->stat.i_frame_size) / duration / 125;//通过对h->stat.i_frame_size数组进行求和，再除以持续时间和常数得到的比特率值
 
         if( PARAM_INTERLACED )
-        {
+        {   //如果参数 PARAM_INTERLACED 为真，则生成关于场（field）的统计信息
             char *fieldstats = buf;
             fieldstats[0] = 0;
             if( i_inter )
@@ -4377,7 +4377,7 @@ void    x264_encoder_close  ( x264_t *h )
         }
 
         if( h->pps->b_transform_8x8_mode )
-        {
+        {   //如果参数 h->pps->b_transform_8x8_mode 为真（非零），则生成关于8x8变换的统计信息
             buf[0] = 0;
             if( h->stat.i_mb_count_8x8dct[0] )
                 sprintf( buf, " inter:%.1f%%", 100. * h->stat.i_mb_count_8x8dct[1] / h->stat.i_mb_count_8x8dct[0] );
@@ -4393,9 +4393,9 @@ void    x264_encoder_close  ( x264_t *h )
                       h->stat.i_direct_frames[0] * 100. / h->stat.i_frame_count[SLICE_TYPE_B] );
         }
 
-        buf[0] = 0;
+        buf[0] = 0;//创建字符数组 buf，并将其初始化为空字符串
         if( CHROMA_FORMAT )
-        {
+        {   //CHROMA_FORMAT 为真（非零），则生成关于色度（chroma）的统计信息
             int csize = CHROMA444 ? 4 : 1;
             if( i_mb_count != i_all_intra )
                 sprintf( buf, " inter: %.1f%% %.1f%% %.1f%%",
@@ -4409,21 +4409,21 @@ void    x264_encoder_close  ( x264_t *h )
                       h->stat.i_mb_cbp[4] * 100.0 / (i_all_intra*csize), buf );
         }
         else
-        {
+        {   //如果 CHROMA_FORMAT 不为真（零），则生成关于亮度（luma）的统计信息
             if( i_mb_count != i_all_intra )
                 sprintf( buf, " inter: %.1f%%", h->stat.i_mb_cbp[1] * 100.0 / ((i_mb_count - i_all_intra)*4) );
             x264_log( h, X264_LOG_INFO, "coded y intra: %.1f%%%s\n",
                       h->stat.i_mb_cbp[0] * 100.0 / (i_all_intra*4), buf );
         }
-
+        //定义一个二维整数数组 fixed_pred_modes，用于存储预测模式的统计数据。数组的大小为 4x9，初始值都为 0。定义一个一维整数数组 sum_pred_modes，用于存储每个预测模式类别的总数，初始值都为 0
         int64_t fixed_pred_modes[4][9] = {{0}};
         int64_t sum_pred_modes[4] = {0};
         for( int i = 0; i <= I_PRED_16x16_DC_128; i++ )
-        {
+        {   //第一个 for 循环用于统计 16x16 宏块的预测模式。循环遍历 I_PRED_16x16_DC_128（表示预测模式的枚举值），将统计数据加到对应的 fixed_pred_modes 和 sum_pred_modes 中
             fixed_pred_modes[0][x264_mb_pred_mode16x16_fix[i]] += h->stat.i_mb_pred_mode[0][i];
             sum_pred_modes[0] += h->stat.i_mb_pred_mode[0][i];
         }
-        if( sum_pred_modes[0] )
+        if( sum_pred_modes[0] )//如果 sum_pred_modes[0] 不为 0，则计算并输出关于 16x16 宏块预测模式的统计信息。使用 x264_log 函数将各个预测模式的百分比输出到日志中
             x264_log( h, X264_LOG_INFO, "i16 v,h,dc,p: %2.0f%% %2.0f%% %2.0f%% %2.0f%%\n",
                       fixed_pred_modes[0][0] * 100.0 / sum_pred_modes[0],
                       fixed_pred_modes[0][1] * 100.0 / sum_pred_modes[0],
@@ -4432,11 +4432,11 @@ void    x264_encoder_close  ( x264_t *h )
         for( int i = 1; i <= 2; i++ )
         {
             for( int j = 0; j <= I_PRED_8x8_DC_128; j++ )
-            {
+            {   //用于统计 4x4 宏块的预测模式。循环遍历 I_PRED_8x8_DC_128（表示预测模式的枚举值），将统计数据加到对应的 fixed_pred_modes 和 sum_pred_modes 中
                 fixed_pred_modes[i][x264_mb_pred_mode4x4_fix(j)] += h->stat.i_mb_pred_mode[i][j];
                 sum_pred_modes[i] += h->stat.i_mb_pred_mode[i][j];
             }
-            if( sum_pred_modes[i] )
+            if( sum_pred_modes[i] )//计算并输出关于 4x4 宏块预测模式的统计信息。使用 x264_log 函数将各个预测模式的百分比输出到日志中
                 x264_log( h, X264_LOG_INFO, "i%d v,h,dc,ddl,ddr,vr,hd,vl,hu: %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%% %2.0f%%\n", (3-i)*4,
                           fixed_pred_modes[i][0] * 100.0 / sum_pred_modes[i],
                           fixed_pred_modes[i][1] * 100.0 / sum_pred_modes[i],
@@ -4449,11 +4449,11 @@ void    x264_encoder_close  ( x264_t *h )
                           fixed_pred_modes[i][8] * 100.0 / sum_pred_modes[i] );
         }
         for( int i = 0; i <= I_PRED_CHROMA_DC_128; i++ )
-        {
+        {   //用于统计色度（chroma）宏块的预测模式。循环遍历 I_PRED_CHROMA_DC_128（表示预测模式的枚举值），将统计数据加到对应的 fixed_pred_modes 和 sum_pred_modes 中
             fixed_pred_modes[3][x264_mb_chroma_pred_mode_fix[i]] += h->stat.i_mb_pred_mode[3][i];
             sum_pred_modes[3] += h->stat.i_mb_pred_mode[3][i];
         }
-        if( sum_pred_modes[3] && !CHROMA444 )
+        if( sum_pred_modes[3] && !CHROMA444 )//则计算并输出关于色度宏块预测模式的统计信息。使用 x264_log 函数将各个预测模式的百分比输出到日志中
             x264_log( h, X264_LOG_INFO, "i8c dc,h,v,p: %2.0f%% %2.0f%% %2.0f%% %2.0f%%\n",
                       fixed_pred_modes[3][0] * 100.0 / sum_pred_modes[3],
                       fixed_pred_modes[3][1] * 100.0 / sum_pred_modes[3],
@@ -4461,14 +4461,14 @@ void    x264_encoder_close  ( x264_t *h )
                       fixed_pred_modes[3][3] * 100.0 / sum_pred_modes[3] );
 
         if( h->param.analyse.i_weighted_pred >= X264_WEIGHTP_SIMPLE && h->stat.i_frame_count[SLICE_TYPE_P] > 0 )
-        {
+        {   //则生成关于加权预测帧的统计信息。将字符串 buf 的第一个字符设为 0，然后根据 CHROMA_FORMAT 的值，将字符串 " UV:%.1f%%" 追加到 buf 中。最后，使用 x264_log 函数将加权预测帧的百分比输出到日志中
             buf[0] = 0;
             if( CHROMA_FORMAT )
                 sprintf( buf, " UV:%.1f%%", h->stat.i_wpred[1] * 100.0 / h->stat.i_frame_count[SLICE_TYPE_P] );
             x264_log( h, X264_LOG_INFO, "Weighted P-Frames: Y:%.1f%%%s\n",
                       h->stat.i_wpred[0] * 100.0 / h->stat.i_frame_count[SLICE_TYPE_P], buf );
         }
-
+        //第一个嵌套的 for 循环用于统计参考帧的使用情况。循环遍历 i_list 和 i_slice，其中 i_list 表示参考帧列表，i_slice 表示切片
         for( int i_list = 0; i_list < 2; i_list++ )
             for( int i_slice = 0; i_slice < 2; i_slice++ )
             {
@@ -4483,18 +4483,18 @@ void    x264_encoder_close  ( x264_t *h )
                     }
                 if( i_max == 0 )
                     continue;
-                for( int i = 0; i <= i_max; i++ )
+                for( int i = 0; i <= i_max; i++ )//使用 sprintf 函数将参考帧的使用百分比追加到字符串 buf 中
                     p += sprintf( p, " %4.1f%%", 100. * h->stat.i_mb_count_ref[i_slice][i_list][i] / i_den );
                 x264_log( h, X264_LOG_INFO, "ref %c L%d:%s\n", "PB"[i_slice], i_list, buf );
             }
 
         if( h->param.analyse.b_ssim )
-        {
+        {   //计算并输出 SSIM 的平均值。首先计算 h->stat.f_ssim_mean_y 数组的元素之和，并除以 duration 的值得到平均值
             float ssim = SUM3( h->stat.f_ssim_mean_y ) / duration;
             x264_log( h, X264_LOG_INFO, "SSIM Mean Y:%.7f (%6.3fdb)\n", ssim, calc_ssim_db( ssim ) );
         }
         if( h->param.analyse.b_psnr )
-        {
+        {   //计算并输出 PSNR 的各项指标。使用 x264_log 函数将平均亮度、平均色度、平均值、全局值和码率输出到日志中
             x264_log( h, X264_LOG_INFO,
                       "PSNR Mean Y:%6.3f U:%6.3f V:%6.3f Avg:%6.3f Global:%6.3f kb/s:%.2f\n",
                       SUM3( h->stat.f_psnr_mean_y ) / duration,
@@ -4508,14 +4508,14 @@ void    x264_encoder_close  ( x264_t *h )
             x264_log( h, X264_LOG_INFO, "kb/s:%.2f\n", f_bitrate );
     }
 
-    /* rc */
+    /* rc *///释放与比特率控制相关的资源
     x264_ratecontrol_delete( h );
 
-    /* param */
+    /* param *///清理和释放与参数相关的资源
     x264_param_cleanup( &h->param );
 
-    x264_cqm_delete( h );
-    x264_free( h->nal_buffer );
+    x264_cqm_delete( h );//释放颜色量化矩阵（CQM）相关的资源
+    x264_free( h->nal_buffer );//释放 h->nal_buffer、h->reconfig_h、h->cost_table 等资源
     x264_free( h->reconfig_h );
     x264_analyse_free_costs( h );
     x264_free( h->cost_table );
@@ -4523,32 +4523,32 @@ void    x264_encoder_close  ( x264_t *h )
     if( h->i_thread_frames > 1 )
         h = h->thread[h->i_thread_phase];
 
-    /* frames */
+    /* frames *///释放未使用的帧列表、当前帧列表和空白未使用帧列表相关的资源
     x264_frame_delete_list( h->frames.unused[0] );
     x264_frame_delete_list( h->frames.unused[1] );
     x264_frame_delete_list( h->frames.current );
     x264_frame_delete_list( h->frames.blank_unused );
 
-    h = h->thread[0];
-
+    h = h->thread[0];//将 h 的指针指向 h->thread[0]
+    //使用嵌套的两个 for 循环，遍历线程和参考帧，如果参考帧是复制的，则调用 x264_frame_delete 函数删除复制的参考帧
     for( int i = 0; i < h->i_thread_frames; i++ )
         if( h->thread[i]->b_thread_active )
             for( int j = 0; j < h->thread[i]->i_ref[0]; j++ )
                 if( h->thread[i]->fref[0][j] && h->thread[i]->fref[0][j]->b_duplicate )
                     x264_frame_delete( h->thread[i]->fref[0][j] );
-
+    //如果 h->param.i_lookahead_threads 大于 1，则遍历 h->lookahead_thread 数组，使用 x264_free 函数释放相关资源
     if( h->param.i_lookahead_threads > 1 )
         for( int i = 0; i < h->param.i_lookahead_threads; i++ )
             x264_free( h->lookahead_thread[i] );
 
     for( int i = h->param.i_threads - 1; i >= 0; i-- )
-    {
+    {   //使用逆序的 for 循环，从最后一个线程开始遍历到第一个线程
         x264_frame_t **frame;
-
+        //在每个线程中，首先检查 h->param.b_sliced_threads 是否为真，或者当前线程是否是第一个线程（i == 0）
         if( !h->param.b_sliced_threads || i == 0 )
         {
             for( frame = h->thread[i]->frames.reference; *frame; frame++ )
-            {
+            {   //遍历当前线程的参考帧列表 h->thread[i]->frames.reference，并递减每个参考帧的引用计数。如果引用计数减为零，则调用 x264_frame_delete 函数删除参考帧
                 assert( (*frame)->i_reference_count > 0 );
                 (*frame)->i_reference_count--;
                 if( (*frame)->i_reference_count == 0 )
@@ -4556,16 +4556,16 @@ void    x264_encoder_close  ( x264_t *h )
             }
             frame = &h->thread[i]->fdec;
             if( *frame )
-            {
+            {   //检查当前线程的解码帧 h->thread[i]->fdec 是否存在。如果存在，则递减解码帧的引用计数，并在引用计数减为零时调用 x264_frame_delete 函数删除解码帧
                 assert( (*frame)->i_reference_count > 0 );
                 (*frame)->i_reference_count--;
                 if( (*frame)->i_reference_count == 0 )
                     x264_frame_delete( *frame );
-            }
+            }//调用 x264_macroblock_cache_free 函数释放当前线程的宏块缓存资源
             x264_macroblock_cache_free( h->thread[i] );
-        }
+        }//调用 x264_macroblock_thread_free 函数释放当前线程的宏块线程资源
         x264_macroblock_thread_free( h->thread[i], 0 );
-        x264_free( h->thread[i]->out.p_bitstream );
+        x264_free( h->thread[i]->out.p_bitstream );//使用 x264_free 函数释放当前线程的输出比特流和NAL单元缓冲区资源
         x264_free( h->thread[i]->out.nal );
         x264_pthread_mutex_destroy( &h->thread[i]->mutex );
         x264_pthread_cond_destroy( &h->thread[i]->cv );

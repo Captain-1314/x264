@@ -875,13 +875,13 @@ void x264_sync_frame_list_delete( x264_sync_frame_list_t *slist )
 }
 
 void x264_sync_frame_list_push( x264_sync_frame_list_t *slist, x264_frame_t *frame )
-{
+{   //锁定同步帧列表的互斥锁
     x264_pthread_mutex_lock( &slist->mutex );
-    while( slist->i_size == slist->i_max_size )
+    while( slist->i_size == slist->i_max_size )//在同步帧列表的大小达到最大值 slist->i_max_size 时，等待空闲条件变量的信号
         x264_pthread_cond_wait( &slist->cv_empty, &slist->mutex );
-    slist->list[ slist->i_size++ ] = frame;
-    x264_pthread_mutex_unlock( &slist->mutex );
-    x264_pthread_cond_broadcast( &slist->cv_fill );
+    slist->list[ slist->i_size++ ] = frame;//将帧数据 frame 添加到同步帧列表的末尾，然后递增列表的大小 slist->i_size++
+    x264_pthread_mutex_unlock( &slist->mutex );//解锁同步帧列表的互斥锁
+    x264_pthread_cond_broadcast( &slist->cv_fill );//广播填充条件变量的信号，以通知等待该变量的线程可以继续执行
 }
 
 x264_frame_t *x264_sync_frame_list_pop( x264_sync_frame_list_t *slist )

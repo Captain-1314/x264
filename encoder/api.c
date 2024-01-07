@@ -74,14 +74,14 @@ typedef struct x264_api_t
 } x264_api_t;
 
 REALIGN_STACK x264_t *x264_encoder_open( x264_param_t *param )
-{
+{   //分配了一个 x264_api_t 结构体的内存，并将其初始化为零。如果内存分配失败，则返回 NULL
     x264_api_t *api = calloc( 1, sizeof( x264_api_t ) );
     if( !api )
         return NULL;
 
-#if HAVE_BITDEPTH8
+#if HAVE_BITDEPTH8//根据参数结构体中的位深度（param->i_bitdepth）选择适当的编码器函数
     if( param->i_bitdepth == 8 )
-    {
+    {   //如果位深度为 8，将设置 api 结构体中的函数指针为 8 位编码器对应的函数
         api->nal_encode = x264_8_nal_encode;
         api->encoder_reconfig = x264_8_encoder_reconfig;
         api->encoder_parameters = x264_8_encoder_parameters;
@@ -99,7 +99,7 @@ REALIGN_STACK x264_t *x264_encoder_open( x264_param_t *param )
 #endif
 #if HAVE_BITDEPTH10
     if( param->i_bitdepth == 10 )
-    {
+    {   //如果位深度为 10，将设置 api 结构体中的函数指针为 10 位编码器对应的函数
         api->nal_encode = x264_10_nal_encode;
         api->encoder_reconfig = x264_10_encoder_reconfig;
         api->encoder_parameters = x264_10_encoder_parameters;
@@ -114,7 +114,7 @@ REALIGN_STACK x264_t *x264_encoder_open( x264_param_t *param )
         api->x264 = x264_10_encoder_open( param, api );
     }
     else
-#endif
+#endif  //如果编译时没有支持所选位深度的编码器，函数将打印错误日志并返回
         x264_log_internal( X264_LOG_ERROR, "not compiled with %d bit depth support\n", param->i_bitdepth );
 
     if( !api->x264 )

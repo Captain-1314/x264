@@ -347,13 +347,13 @@ REALIGN_STACK void x264_param_default( x264_param_t *param )
     memset( param, 0, sizeof( x264_param_t ) );
 
     /* CPU autodetect */
-    param->cpu = x264_cpu_detect();
-    param->i_threads = X264_THREADS_AUTO;
-    param->i_lookahead_threads = X264_THREADS_AUTO;
-    param->b_deterministic = 1;
-    param->i_sync_lookahead = X264_SYNC_LOOKAHEAD_AUTO;
+    param->cpu = x264_cpu_detect();//通过调用 x264_cpu_detect() 函数自动检测 CPU 类型
+    param->i_threads = X264_THREADS_AUTO;//使用自动线程数
+    param->i_lookahead_threads = X264_THREADS_AUTO;//使用自动预测线程数
+    param->b_deterministic = 1;//启用确定性模式，以确保相同输入产生相同的输出
+    param->i_sync_lookahead = X264_SYNC_LOOKAHEAD_AUTO;//使用自动同步预测深度
 
-    /* Video properties */
+    /* Video properties *///接下来是一系列与视频属性相关的参数，如色度格式、宽度、高度、宽高比等
     param->i_csp           = X264_CHROMA_FORMAT ? X264_CHROMA_FORMAT : X264_CSP_I420;
     param->i_width         = 0;
     param->i_height        = 0;
@@ -380,7 +380,7 @@ REALIGN_STACK void x264_param_default( x264_param_t *param )
     param->i_bitdepth = 8;
 #endif
 
-    /* Encoder parameters */
+    /* Encoder parameters *///然后是编码器参数，包括帧参考数、最大关键帧间隔、最小关键帧间隔、B 帧数、场景切换阈值等
     param->i_frame_reference = 3;
     param->i_keyint_max = 250;
     param->i_keyint_min = X264_KEYINT_MIN_AUTO;
@@ -391,7 +391,7 @@ REALIGN_STACK void x264_param_default( x264_param_t *param )
     param->i_bframe_pyramid = X264_B_PYRAMID_NORMAL;
     param->b_interlaced = 0;
     param->b_constrained_intra = 0;
-
+    //之后是一些编码器设置，如去块滤波、CABAC 编码、码率控制方法、参考帧压缩系数等
     param->b_deblocking_filter = 1;
     param->i_deblocking_filter_alphac0 = 0;
     param->i_deblocking_filter_beta = 0;
@@ -426,12 +426,12 @@ REALIGN_STACK void x264_param_default( x264_param_t *param )
     param->rc.i_zones = 0;
     param->rc.b_mb_tree = 1;
 
-    /* Log */
+    /* Log *///然后是一些与日志输出、分析类型、量化矩阵等相关的参数
     param->pf_log = x264_log_default;
     param->p_log_private = NULL;
     param->i_log_level = X264_LOG_INFO;
 
-    /* */
+    /* *///最后是一些与视频格式、OpenCL 加速、AVC-Intra 等特定功能相关的参数
     param->analyse.intra = X264_ANALYSE_I4x4 | X264_ANALYSE_I8x8;
     param->analyse.inter = X264_ANALYSE_I4x4 | X264_ANALYSE_I8x8
                          | X264_ANALYSE_PSUB16x16 | X264_ANALYSE_BSUB16x16;
@@ -704,12 +704,12 @@ static int param_apply_tune( x264_param_t *param, const char *tune )
 }
 
 REALIGN_STACK int x264_param_default_preset( x264_param_t *param, const char *preset, const char *tune )
-{
+{   //将参数结构体初始化为默认值
     x264_param_default( param );
-
+    //如果传入的预设参数（preset）不为空，将调用 param_apply_preset 函数应用该预设参数对参数结构体进行修改。如果应用预设参数失败，则返回 -1
     if( preset && param_apply_preset( param, preset ) < 0 )
         return -1;
-    if( tune && param_apply_tune( param, tune ) < 0 )
+    if( tune && param_apply_tune( param, tune ) < 0 )//如果传入的调整参数（tune）不为空，将调用 param_apply_tune 函数应用该调整参数对参数结构体进行修改。如果应用调整参数失败，则返回 -1
         return -1;
     return 0;
 }
@@ -747,44 +747,44 @@ static int profile_string_to_int( const char *str )
 }
 
 REALIGN_STACK int x264_param_apply_profile( x264_param_t *param, const char *profile )
-{
+{   //函数首先检查是否传入了profile，如果profile件为空，则直接返回 0，表示没有应用任何profile
     if( !profile )
         return 0;
-
+    //将根据profile的字符串形式将其转换为整数 p，以便进行后续的配置判断
     const int qp_bd_offset = 6 * (param->i_bitdepth-8);
     int p = profile_string_to_int( profile );
-    if( p < 0 )
+    if( p < 0 )//如果转换为整数的结果 p 小于 0，则表示配置无效，函数会打印错误日志并返回 -1
     {
         x264_log_internal( X264_LOG_ERROR, "invalid profile: %s\n", profile );
         return -1;
-    }
+    }//如果配置类型小于 PROFILE_HIGH444_PREDICTIVE 并且码率控制方法为恒定质量（X264_RC_CRF）且质量因子小于等于 0，或者码率控制方法为恒定码率（X264_RC_CQP）且 qp 值小于等于 0，则表示该配置不支持无损编码，函数会打印错误日志并返回 -1
     if( p < PROFILE_HIGH444_PREDICTIVE && ((param->rc.i_rc_method == X264_RC_CQP && param->rc.i_qp_constant <= 0) ||
         (param->rc.i_rc_method == X264_RC_CRF && (int)(param->rc.f_rf_constant + qp_bd_offset) <= 0)) )
     {
         x264_log_internal( X264_LOG_ERROR, "%s profile doesn't support lossless\n", profile );
         return -1;
-    }
+    }//如果配置类型小于 PROFILE_HIGH444_PREDICTIVE 并且色度空间类型为 4:4:4 及以上，则表示该配置不支持 4:4:4，函数会打印错误日志并返回 -1
     if( p < PROFILE_HIGH444_PREDICTIVE && (param->i_csp & X264_CSP_MASK) >= X264_CSP_I444 )
     {
         x264_log_internal( X264_LOG_ERROR, "%s profile doesn't support 4:4:4\n", profile );
         return -1;
-    }
+    }//如果配置类型小于 PROFILE_HIGH422 并且色度空间类型为 4:2:2 及以上，则表示该配置不支持 4:2:2，函数会打印错误日志并返回 -1
     if( p < PROFILE_HIGH422 && (param->i_csp & X264_CSP_MASK) >= X264_CSP_I422 )
     {
         x264_log_internal( X264_LOG_ERROR, "%s profile doesn't support 4:2:2\n", profile );
         return -1;
-    }
+    }//如果配置类型小于 PROFILE_HIGH10 并且位深度大于 8，则表示该配置不支持大于 8 位的位深度，函数会打印错误日志并返回 -1
     if( p < PROFILE_HIGH10 && param->i_bitdepth > 8 )
     {
         x264_log_internal( X264_LOG_ERROR, "%s profile doesn't support a bit depth of %d\n", profile, param->i_bitdepth );
         return -1;
-    }
+    }//如果配置类型为 PROFILE_HIGH 并且色度空间类型为 4:0:0，则表示该配置不支持 4:0:0，函数会打印错误日志并返回 -1
     if( p < PROFILE_HIGH && (param->i_csp & X264_CSP_MASK) == X264_CSP_I400 )
     {
         x264_log_internal( X264_LOG_ERROR, "%s profile doesn't support 4:0:0\n", profile );
         return -1;
     }
-
+    //对于 PROFILE_BASELINE 配置，会将一些参数设置为特定的值，如关闭 8x8 变换、使用 CABAC 编码、使用平坦的量化矩阵预设
     if( p == PROFILE_BASELINE )
     {
         param->analyse.b_transform_8x8 = 0;
