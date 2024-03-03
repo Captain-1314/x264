@@ -229,7 +229,7 @@ static ALWAYS_INLINE uint32_t ac_energy_var( uint64_t sum_ssd, int shift, x264_f
     {
         frame->i_pixel_sum[i] += sum;
         frame->i_pixel_ssd[i] += ssd;
-    }
+    }//类方差的计算，与方差唯一的不同是方差=ssd >> shift - ((uint64_t)sum * sum >> shift*2)
     return ssd - ((uint64_t)sum * sum >> shift);
 }
 
@@ -237,7 +237,7 @@ static ALWAYS_INLINE uint32_t ac_energy_plane( x264_t *h, int mb_x, int mb_y, x2
 {
     int height = b_chroma ? 16>>CHROMA_V_SHIFT : 16;
     int stride = frame->i_stride[i];
-    int offset = b_field
+    int offset = b_field//表示是否为场模式
         ? 16 * mb_x + height * (mb_y&~1) * stride + (mb_y&1) * stride
         : 16 * mb_x + height * mb_y * stride;
     stride <<= b_field;
@@ -254,7 +254,7 @@ static ALWAYS_INLINE uint32_t ac_energy_plane( x264_t *h, int mb_x, int mb_y, x2
     else
         return ac_energy_var( h->pixf.var[PIXEL_16x16]( frame->plane[i] + offset, stride ), 8, frame, i, b_store );
 }
-
+//这段代码用于计算宏块（MB）中所有平面的交流（AC）能量的总和
 // Find the total AC energy of the block in all planes.
 static NOINLINE uint32_t ac_energy_mb( x264_t *h, int mb_x, int mb_y, x264_frame_t *frame )
 {
@@ -265,7 +265,7 @@ static NOINLINE uint32_t ac_energy_mb( x264_t *h, int mb_x, int mb_y, x264_frame
     uint32_t var;
     x264_prefetch_fenc( h, frame, mb_x, mb_y );
     if( h->mb.b_adaptive_mbaff )
-    {
+    {   //主要针对interlace的视频
         /* We don't know the super-MB mode we're going to pick yet, so
          * simply try both and pick the lower of the two. */
         uint32_t var_interlaced, var_progressive;
@@ -289,14 +289,14 @@ static NOINLINE uint32_t ac_energy_mb( x264_t *h, int mb_x, int mb_y, x264_frame
     {
         var  = ac_energy_plane( h, mb_x, mb_y, frame, 0, 0, PARAM_INTERLACED, 1 );
         if( CHROMA444 )
-        {
+        {   //如果是CHROMA444，还需要计算两个色度平面的AC能量
             var += ac_energy_plane( h, mb_x, mb_y, frame, 1, 0, PARAM_INTERLACED, 1 );
             var += ac_energy_plane( h, mb_x, mb_y, frame, 2, 0, PARAM_INTERLACED, 1 );
         }
         else if( CHROMA_FORMAT )
             var += ac_energy_plane( h, mb_x, mb_y, frame, 1, 1, PARAM_INTERLACED, 1 );
     }
-    x264_emms();
+    x264_emms();//执行emms指令，确保MMX/SSE指令集的状态被清除
     return var;
 }
 
@@ -311,7 +311,7 @@ void x264_adaptive_quant_frame( x264_t *h, x264_frame_t *frame, float *quant_off
 
     /* Degenerate cases */
     if( h->param.rc.i_aq_mode == X264_AQ_NONE || h->param.rc.f_aq_strength == 0 )
-    {
+    {   //表示自适应量化模式未启用或自适应量化强度为0
         /* Need to init it anyways for MB tree */
         if( h->param.rc.i_aq_mode && h->param.rc.f_aq_strength == 0 )
         {
@@ -334,7 +334,7 @@ void x264_adaptive_quant_frame( x264_t *h, x264_frame_t *frame, float *quant_off
         }
         /* Need variance data for weighted prediction */
         if( h->param.analyse.i_weighted_pred )
-        {
+        {   //计算加权预测所需的方差数据
             for( int mb_y = 0; mb_y < h->mb.i_mb_height; mb_y++ )
                 for( int mb_x = 0; mb_x < h->mb.i_mb_width; mb_x++ )
                     ac_energy_mb( h, mb_x, mb_y, frame );
@@ -350,9 +350,9 @@ void x264_adaptive_quant_frame( x264_t *h, x264_frame_t *frame, float *quant_off
         float strength;
         float avg_adj = 0.f;
         float bias_strength = 0.f;
-
+        //通过判断自适应量化模式（h->param.rc.i_aq_mode）的取值，确定使用不同的自适应量化策略
         if( h->param.rc.i_aq_mode == X264_AQ_AUTOVARIANCE || h->param.rc.i_aq_mode == X264_AQ_AUTOVARIANCE_BIASED )
-        {
+        {   //计算位深度校正因子（bit_depth_correction），用于将能量值转换为QP调整因子
             float bit_depth_correction = 1.f / (1 << (2*(BIT_DEPTH-8)));
             float avg_adj_pow2 = 0.f;
             for( int mb_y = 0; mb_y < h->mb.i_mb_height; mb_y++ )
@@ -389,7 +389,7 @@ void x264_adaptive_quant_frame( x264_t *h, x264_frame_t *frame, float *quant_off
                     qp_adj = strength * (qp_adj - avg_adj);
                 }
                 else
-                {
+                {   //计算 X264_AQ_VARIANCE 方差的方案，仅会考虑自身宏块的方差和设置strength强度参数，不考虑其他宏块
                     uint32_t energy = ac_energy_mb( h, mb_x, mb_y, frame );
                     qp_adj = strength * (x264_log2( X264_MAX(energy, 1) ) - (14.427f + 2*(BIT_DEPTH-8)));
                 }
@@ -402,7 +402,7 @@ void x264_adaptive_quant_frame( x264_t *h, x264_frame_t *frame, float *quant_off
             }
     }
 
-    /* Remove mean from SSD calculation */
+    /* Remove mean from SSD calculation *///SSD是"Sum of Squared Differences"（平方差和）的缩写
     for( int i = 0; i < 3; i++ )
     {
         uint64_t ssd = frame->i_pixel_ssd[i];
@@ -648,11 +648,11 @@ void x264_ratecontrol_init_reconfigurable( x264_t *h, int b_init )
     {
         /* We don't support changing the ABR bitrate right now,
            so if the stream starts as CBR, keep it CBR. */
-        if( rc->b_vbv_min_rate )
+        if( rc->b_vbv_min_rate )//如果设置了最小码率，则此时变为CBR模式
             h->param.rc.i_vbv_max_bitrate = h->param.rc.i_bitrate;
 
         if( h->param.rc.i_vbv_buffer_size < (int)(h->param.rc.i_vbv_max_bitrate / rc->fps) )
-        {
+        {   //打印警告消息，指示VBV缓冲区大小不能小于一个帧的比特率
             h->param.rc.i_vbv_buffer_size = h->param.rc.i_vbv_max_bitrate / rc->fps;
             x264_log( h, X264_LOG_WARNING, "VBV buffer size cannot be smaller than one frame, using %d kbit\n",
                       h->param.rc.i_vbv_buffer_size );
@@ -735,49 +735,49 @@ void x264_ratecontrol_init_reconfigurable( x264_t *h, int b_init )
             rc->b_vbv = 1;
             rc->b_vbv_min_rate = !rc->b_2pass
                           && h->param.rc.i_rc_method == X264_RC_ABR
-                          && h->param.rc.i_vbv_max_bitrate <= h->param.rc.i_bitrate;
+                          && h->param.rc.i_vbv_max_bitrate <= h->param.rc.i_bitrate;//如果最大码率等于平均码率，此时也是CBR模式
         }
     }
 }
 
 int x264_ratecontrol_new( x264_t *h )
-{
+{   //声明一个指向x264_ratecontrol_t结构的指针rc，用于指向当前编码器上的码率控制数据结构
     x264_ratecontrol_t *rc;
-
+    //调用x264_emms()函数，确保在SSE指令之后使用emms指令以恢复FPU（浮点运算单元）的状态
     x264_emms();
-
+    //使用CHECKED_MALLOCZERO宏分配并初始化大小为h->param.i_threads * sizeof(x264_ratecontrol_t)的内存块，并将指针赋值给h->rc
     CHECKED_MALLOCZERO( h->rc, h->param.i_threads * sizeof(x264_ratecontrol_t) );
-    rc = h->rc;
-
+    rc = h->rc;//将rc指向h->rc，方便后续代码的使用
+    //rc->b_abr表示是否使用平均比特率（Average Bit Rate）控制方法，条件是不使用恒定QP（Constant QP）控制方法并且不读取统计信息
     rc->b_abr = h->param.rc.i_rc_method != X264_RC_CQP && !h->param.rc.b_stat_read;
     rc->b_2pass = h->param.rc.i_rc_method == X264_RC_ABR && h->param.rc.b_stat_read;
-
+    //如果编码参数中指定了帧率（h->param.i_fps_num和h->param.i_fps_den），则计算帧率的浮点数值并赋给rc->fps；否则，默认帧率为25.0
     /* FIXME: use integers */
     if( h->param.i_fps_num > 0 && h->param.i_fps_den > 0 )
         rc->fps = (float) h->param.i_fps_num / h->param.i_fps_den;
     else
         rc->fps = 25.0;
-
+    //如果编码参数中启用了宏块树模式（h->param.rc.b_mb_tree），则设置相关的参数
     if( h->param.rc.b_mb_tree )
     {
-        h->param.rc.f_pb_factor = 1;
-        rc->qcompress = 1;
+        h->param.rc.f_pb_factor = 1;//表示宏块树模式下的P帧和B帧之间的PB因子
+        rc->qcompress = 1;//表示宏块树模式下的量化压缩系数
     }
     else
         rc->qcompress = h->param.rc.f_qcompress;
-
+    //将编码参数中的比特率乘以一个缩放因子（1000或1024，取决于h->param.i_avcintra_class的值）赋给rc->bitrate，得到实际的比特率值
     rc->bitrate = h->param.rc.i_bitrate * (h->param.i_avcintra_class ? 1024. : 1000.);
-    rc->rate_tolerance = h->param.rc.f_rate_tolerance;
-    rc->nmb = h->mb.i_mb_count;
-    rc->last_non_b_pict_type = -1;
-    rc->cbr_decay = 1.0;
+    rc->rate_tolerance = h->param.rc.f_rate_tolerance;//将编码参数中的帧间码率容差系数赋给rc->rate_tolerance，表示允许的帧间码率波动范围
+    rc->nmb = h->mb.i_mb_count;//表示总的宏块数
+    rc->last_non_b_pict_type = -1;//表示最近一个非B帧的图像类型，初始值为无效值
+    rc->cbr_decay = 1.0;//表示恒定比特率模式下的比特率衰减系数
 
     if( h->param.rc.i_rc_method != X264_RC_ABR && h->param.rc.b_stat_read )
     {
         x264_log( h, X264_LOG_ERROR, "CRF/CQP is incompatible with 2pass.\n" );
         return -1;
     }
-
+    //码率控制初始化
     x264_ratecontrol_init_reconfigurable( h, 1 );
 
     if( h->param.i_nal_hrd )
@@ -802,11 +802,11 @@ int x264_ratecontrol_new( x264_t *h )
         x264_log( h, X264_LOG_WARNING, "bitrate tolerance too small, using .01\n" );
         rc->rate_tolerance = 0.01;
     }
-
+    //表示是否使用可变QP
     h->mb.b_variable_qp = rc->b_vbv || h->param.rc.i_aq_mode;
 
-    if( rc->b_abr )
-    {
+    if( rc->b_abr )//如果使用ABR（Average Bit Rate）控制方法
+    {   //定义了一个宏ABR_INIT_QP，根据不同的码率控制方法设置初始QP值
         /* FIXME ABR_INIT_QP is actually used only in CRF */
 #define ABR_INIT_QP (( h->param.rc.i_rc_method == X264_RC_CRF ? h->param.rc.f_rf_constant : 24 ) + QP_BD_OFFSET)
         rc->accum_p_norm = .01;
@@ -1153,7 +1153,7 @@ parse_error:
     /* Open output file */
     /* If input and output files are the same, output to a temp file
      * and move it to the real name only when it's complete */
-    if( h->param.rc.b_stat_write )
+    if( h->param.rc.b_stat_write )//需要写入统计信息文件，则进行以下操作
     {
         char *p;
         rc->psz_stat_file_tmpname = strcat_filename( h->param.rc.psz_stat_out, ".temp" );
@@ -1199,14 +1199,14 @@ parse_error:
     }
 
     for( int i = 0; i<h->param.i_threads; i++ )
-    {
+    {   //将h->thread[i]->rc指向rc+i，即为每个线程分配一个独立的rc结构体
         h->thread[i]->rc = rc+i;
-        if( i )
-        {
+        if( i )//如果i不为0，即对于除第一个线程以外的线程
+        {   //将rc[i]的内容复制为rc[0]，使每个线程的rc结构体内容相同
             rc[i] = rc[0];
-            h->thread[i]->param = h->param;
-            h->thread[i]->mb.b_variable_qp = h->mb.b_variable_qp;
-            h->thread[i]->mb.ip_offset = h->mb.ip_offset;
+            h->thread[i]->param = h->param;//将h->thread[i]->param赋值为h->param，将线程的编码参数与主线程保持一致
+            h->thread[i]->mb.b_variable_qp = h->mb.b_variable_qp;//将h->thread[i]->mb.b_variable_qp赋值为h->mb.b_variable_qp，将线程的宏块的QP变量性质与主线程保持一致
+            h->thread[i]->mb.ip_offset = h->mb.ip_offset;//将h->thread[i]->mb.ip_offset赋值为h->mb.ip_offset，将线程的宏块的内部像素偏移与主线程保持一致
         }
     }
 
@@ -1452,14 +1452,14 @@ void x264_ratecontrol_start( x264_t *h, int i_force_qp, int overhead )
     }
 
     if( rc->b_vbv )
-    {
+    {   //重置行位数、行QP值、行量化参数值，更新VBV计划，包括计算缓冲区速率（rc->buffer_rate）和根据开销（overhead）更新VBV预测
         memset( h->fdec->i_row_bits, 0, h->mb.i_mb_height * sizeof(int) );
         memset( h->fdec->f_row_qp, 0, h->mb.i_mb_height * sizeof(float) );
         memset( h->fdec->f_row_qscale, 0, h->mb.i_mb_height * sizeof(float) );
         rc->row_pred = rc->row_preds[h->sh.i_type];
         rc->buffer_rate = h->fenc->i_cpb_duration * rc->vbv_max_rate * h->sps->vui.i_num_units_in_tick / h->sps->vui.i_time_scale;
         update_vbv_plan( h, overhead );
-
+        //根据编码级别（h->param.i_level_idc）设置帧大小上限（rc->frame_size_maximum）
         const x264_level_t *l = x264_levels;
         while( l->level_idc != 0 && l->level_idc != h->param.i_level_idc )
             l++;
@@ -1468,7 +1468,7 @@ void x264_ratecontrol_start( x264_t *h, int i_force_qp, int overhead )
 
         if( h->param.b_bluray_compat )
             mincr = 4;
-
+        //根据编码级别（h->param.i_level_idc）设置帧大小上限
         /* Profiles above High don't require minCR, so just set the maximum to a large value. */
         if( h->sps->i_profile_idc > PROFILE_HIGH )
             rc->frame_size_maximum = 1e9;
@@ -1489,10 +1489,10 @@ void x264_ratecontrol_start( x264_t *h, int i_force_qp, int overhead )
             }
         }
     }
-
+    //如果是非B帧，则将rc->bframes设置为编码器的B帧数（h->fenc->i_bframes）。这是为了在非B帧的情况下保持与B帧相关的设置一致
     if( h->sh.i_type != SLICE_TYPE_B )
         rc->bframes = h->fenc->i_bframes;
-
+    //如果启用了ABR（平均码率控制），则根据码率估计的量化参数（qscale）计算QP值。rate_estimate_qscale(h)用于估计当前帧的qscale值。然后使用qscale2qp()将qscale转换为QP
     if( rc->b_abr )
     {
         q = qscale2qp( rate_estimate_qscale( h ) );
@@ -1503,7 +1503,7 @@ void x264_ratecontrol_start( x264_t *h, int i_force_qp, int overhead )
         q = qscale2qp( rce->new_qscale );
     }
     else /* CQP */
-    {
+    {   //如果不是ABR和二次编码，则根据不同的条件选择QP值。如果当前切片类型是B帧，并且前一帧被保留为参考帧（h->fdec->b_kept_as_ref为真），则使用B帧和P帧的QP常数的平均值作为QP。否则，根据切片类型选择相应的QP常数
         if( h->sh.i_type == SLICE_TYPE_B && h->fdec->b_kept_as_ref )
             q = ( rc->qp_constant[ SLICE_TYPE_B ] + rc->qp_constant[ SLICE_TYPE_P ] ) / 2;
         else
@@ -1517,9 +1517,9 @@ void x264_ratecontrol_start( x264_t *h, int i_force_qp, int overhead )
                 q -= 6*log2f( zone->f_bitrate_factor );
         }
     }
-    if( i_force_qp != X264_QP_AUTO )
+    if( i_force_qp != X264_QP_AUTO )//如果传入的i_force_qp不等于X264_QP_AUTO，则将强制指定的QP值减去1
         q = i_force_qp - 1;
-
+    //将计算得到的QP值q限制在规定的QP范围内（h->param.rc.i_qp_min和h->param.rc.i_qp_max）
     q = x264_clip3f( q, h->param.rc.i_qp_min, h->param.rc.i_qp_max );
 
     rc->qpa_rc = rc->qpa_rc_prev =
@@ -1532,7 +1532,7 @@ void x264_ratecontrol_start( x264_t *h, int i_force_qp, int overhead )
 
     accum_p_qp_update( h, rc->qpm );
 
-    if( h->sh.i_type != SLICE_TYPE_B )
+    if( h->sh.i_type != SLICE_TYPE_B )//根据当前帧的切片类型，更新rc->last_non_b_pict_type，用于后续的参考帧类型选择
         rc->last_non_b_pict_type = h->sh.i_type;
 }
 
@@ -2338,28 +2338,28 @@ static double clip_qscale( x264_t *h, int pict_type, double q )
         /* Check B-frame complexity, and use up any bits that would
          * overflow before the next P-frame. */
         if( h->sh.i_type == SLICE_TYPE_P && !rcc->single_frame_vbv )
-        {
-            int nb = rcc->bframes;
-            double bits = predict_size( &rcc->pred[h->sh.i_type], q, rcc->last_satd );
+        {   //是在P帧类型的情况下，检查B帧的复杂度，并使用在下一个P帧之前可能溢出的任何比特位
+            int nb = rcc->bframes;//获取了B帧的数量（nb）
+            double bits = predict_size( &rcc->pred[h->sh.i_type], q, rcc->last_satd );//当前帧（P帧）的比特数估计值（bits）
             double pbbits = bits;
-            double bbits = predict_size( rcc->pred_b_from_p, q * h->param.rc.f_pb_factor, rcc->last_satd );
+            double bbits = predict_size( rcc->pred_b_from_p, q * h->param.rc.f_pb_factor, rcc->last_satd );//计算了B帧的比特数估计值
             double space;
             double bframe_cpb_duration = 0;
             double minigop_cpb_duration;
             for( int i = 0; i < nb; i++ )
-                bframe_cpb_duration += h->fenc->f_planned_cpb_duration[i];
+                bframe_cpb_duration += h->fenc->f_planned_cpb_duration[i];//计算了B帧的CPB（Coded Picture Buffer）持续时间
 
             if( bbits * nb > bframe_cpb_duration * rcc->vbv_max_rate )
-            {
+            {   //并检查是否超过了VBV的最大比特率限制。如果超过了限制，则将B帧的数量设置为0
                 nb = 0;
                 bframe_cpb_duration = 0;
             }
             pbbits += nb * bbits;
-
+            //计算了整个Mini-GOP（包括B帧和当前帧）的CPB持续时间
             minigop_cpb_duration = bframe_cpb_duration + fenc_cpb_duration;
-            space = rcc->buffer_fill + minigop_cpb_duration*rcc->vbv_max_rate - rcc->buffer_size;
+            space = rcc->buffer_fill + minigop_cpb_duration*rcc->vbv_max_rate - rcc->buffer_size;//可以确定在下一个P帧之前可以填充的比特数
             if( pbbits < space )
-            {
+            {   //如果预测的帧大小（pbbits）小于剩余空间（space），则将量化参数（q）根据剩余空间的比例进行调整
                 q *= X264_MAX( pbbits / space, bits / (0.5 * rcc->buffer_size) );
             }
             q = X264_MAX( q0/2, q );
@@ -2367,9 +2367,9 @@ static double clip_qscale( x264_t *h, int pict_type, double q )
 
         /* Apply MinCR and buffer fill restrictions */
         double bits = predict_size( &rcc->pred[h->sh.i_type], q, rcc->last_satd );
-        double frame_size_maximum = X264_MIN( rcc->frame_size_maximum, X264_MAX( rcc->buffer_fill, 0.001 ) );
+        double frame_size_maximum = X264_MIN( rcc->frame_size_maximum, X264_MAX( rcc->buffer_fill, 0.001 ) );//计算了当前帧的比特数估计值（bits）和帧大小的最大限制
         if( bits > frame_size_maximum )
-            q *= bits / frame_size_maximum;
+            q *= bits / frame_size_maximum;//如果预测的帧大小超过了最大限制，将量化参数（q）根据预测的帧大小和最大限制进行调整
 
         if( !rcc->b_vbv_min_rate )
             q = X264_MAX( q0, q );
@@ -2389,7 +2389,7 @@ static double clip_qscale( x264_t *h, int pict_type, double q )
     else
         return x264_clip3f( q, lmin, lmax );
 }
-
+//用于在编码过程中根据已使用的实际比特数更新帧的qscale（量化参数）值
 // update qscale for 1 frame based on actual bits used so far
 static float rate_estimate_qscale( x264_t *h )
 {
@@ -2400,7 +2400,7 @@ static float rate_estimate_qscale( x264_t *h )
     int64_t total_bits = 8*(h->stat.i_frame_size[SLICE_TYPE_I]
                           + h->stat.i_frame_size[SLICE_TYPE_P]
                           + h->stat.i_frame_size[SLICE_TYPE_B])
-                       - rcc->filler_bits_sum;
+                       - rcc->filler_bits_sum;//总比特数通过计算I帧、P帧和B帧的帧大小之和，并减去填充比特数（rcc->filler_bits_sum）而得到
 
     if( rcc->b_2pass )
     {
@@ -2416,33 +2416,33 @@ static float rate_estimate_qscale( x264_t *h )
     {
         /* B-frames don't have independent ratecontrol, but rather get the
          * average QP of the two adjacent P-frames + an offset */
-
+        //获取与当前B帧相邻的两个P帧的信息：是否为I帧（i0和i1）
         int i0 = IS_X264_TYPE_I(h->fref_nearest[0]->i_type);
         int i1 = IS_X264_TYPE_I(h->fref_nearest[1]->i_type);
-        int dt0 = abs(h->fenc->i_poc - h->fref_nearest[0]->i_poc);
+        int dt0 = abs(h->fenc->i_poc - h->fref_nearest[0]->i_poc);//与当前帧的POC（Presentation Order Count）之差（dt0和dt1）
         int dt1 = abs(h->fenc->i_poc - h->fref_nearest[1]->i_poc);
-        float q0 = h->fref_nearest[0]->f_qp_avg_rc;
+        float q0 = h->fref_nearest[0]->f_qp_avg_rc;//两个P帧的平均QP值（q0和q1）
         float q1 = h->fref_nearest[1]->f_qp_avg_rc;
-
+        //如果相邻的P帧是B参考帧（X264_TYPE_BREF），则将其QP值减去偏移量（rcc->pb_offset/2）
         if( h->fref_nearest[0]->i_type == X264_TYPE_BREF )
             q0 -= rcc->pb_offset/2;
         if( h->fref_nearest[1]->i_type == X264_TYPE_BREF )
             q1 -= rcc->pb_offset/2;
 
-        if( i0 && i1 )
+        if( i0 && i1 )//如果两个P帧都是I帧，则将两个P帧的QP值的平均值加上偏移量（rcc->ip_offset）作为当前帧的QP值
             q = (q0 + q1) / 2 + rcc->ip_offset;
-        else if( i0 )
+        else if( i0 )//如果只有一个P帧是I帧，则将该P帧的QP值作为当前帧的QP值
             q = q1;
         else if( i1 )
             q = q0;
-        else
+        else//如果两个P帧都不是I帧，则根据相邻P帧的QP值和POC差值的加权平均值作为当前帧的QP值
             q = (q0*dt1 + q1*dt0) / (dt0 + dt1);
-
+        //如果当前帧被保留为参考帧（h->fenc->b_kept_as_ref为真），则将QP值加上偏移量（rcc->pb_offset/2）
         if( h->fenc->b_kept_as_ref )
             q += rcc->pb_offset/2;
-        else
+        else//将QP值加上偏移量（rcc->pb_offset）
             q += rcc->pb_offset;
-
+        //将QP值转换为qscale值，并存储在变量q中
         rcc->qp_novbv = q;
         q = qp2qscale( q );
         if( rcc->b_2pass )
@@ -2460,10 +2460,10 @@ static float rate_estimate_qscale( x264_t *h )
         return q;
     }
     else
-    {
+    {   //计算ABR缓冲区的大小
         double abr_buffer = 2 * rcc->rate_tolerance * rcc->bitrate;
         double predicted_bits = total_bits;
-        if( h->i_thread_frames > 1 )
+        if( h->i_thread_frames > 1 )//对每个线程的帧进行处理
         {
             int j = rcc - h->thread[0]->rc;
             for( int i = 1; i < h->i_thread_frames; i++ )
@@ -2540,7 +2540,7 @@ static float rate_estimate_qscale( x264_t *h )
              * tolerances, the bit distribution approaches that of 2pass. */
 
             double wanted_bits, overflow = 1;
-
+            //计算当前帧的复杂度（last_satd），并更新短期复杂度和复杂度计数
             rcc->last_satd = x264_rc_analyse_slice( h );
             rcc->short_term_cplxsum *= 0.5;
             rcc->short_term_cplxcount *= 0.5;
@@ -2556,13 +2556,13 @@ static float rate_estimate_qscale( x264_t *h )
             rce.qscale = 1;
             rce.pict_type = pict_type;
             rce.i_duration = h->fenc->i_duration;
-
+            //如果使用的是恒定质量模式（X264_RC_CRF），则调用get_qscale函数来获取量化参数（q）
             if( h->param.rc.i_rc_method == X264_RC_CRF )
             {
                 q = get_qscale( h, &rce, rcc->rate_factor_constant, h->fenc->i_frame );
             }
             else
-            {
+            {   //调用get_qscale函数来根据帧的期望比特数和复杂度平均值来获取量化参数（q）
                 q = get_qscale( h, &rce, rcc->wanted_bits_window / rcc->cplxr_sum, h->fenc->i_frame );
 
                 /* ABR code can potentially be counterproductive in CBR, so just don't bother.
@@ -2574,16 +2574,16 @@ static float rate_estimate_qscale( x264_t *h )
                     double time_done = i_frame_done / rcc->fps;
                     if( h->param.b_vfr_input && i_frame_done > 0 )
                         time_done = ((double)(h->fenc->i_reordered_pts - h->i_reordered_pts_delay)) * h->param.i_timebase_num / h->param.i_timebase_den;
-                    wanted_bits = time_done * rcc->bitrate;
+                    wanted_bits = time_done * rcc->bitrate;//计算已编码帧的时间（time_done）和期望比特数（wanted_bits）
                     if( wanted_bits > 0 )
                     {
                         abr_buffer *= X264_MAX( 1, sqrt( time_done ) );
                         overflow = x264_clip3f( 1.0 + (predicted_bits - wanted_bits) / abr_buffer, .5, 2 );
-                        q *= overflow;
+                        q *= overflow;//根据预测的比特数与期望比特数之间的差异以及ABR缓冲区的大小调整量化参数（q）的值
                     }
                 }
             }
-
+            //如果当前帧是关键帧（SLICE_TYPE_I）且最大关键帧间隔（i_keyint_max）大于1，并且上一帧的非B帧的类型不是关键帧，进行以下操作
             if( pict_type == SLICE_TYPE_I && h->param.i_keyint_max > 1
                 /* should test _next_ pict type, but that isn't decided yet */
                 && rcc->last_non_b_pict_type != SLICE_TYPE_I )
@@ -2594,15 +2594,15 @@ static float rate_estimate_qscale( x264_t *h )
             else if( h->i_frame > 0 )
             {
                 if( h->param.rc.i_rc_method != X264_RC_CRF )
-                {
+                {   //根据溢出值（overflow）和帧类型的上一次量化参数（last_qscale_for）计算量化参数的上下限（lmin和lmax
                     /* Asymmetric clipping, because symmetric would prevent
                      * overflow control in areas of rapidly oscillating complexity */
                     double lmin = rcc->last_qscale_for[pict_type] / rcc->lstep;
                     double lmax = rcc->last_qscale_for[pict_type] * rcc->lstep;
                     if( overflow > 1.1 && h->i_frame > 3 )
-                        lmax *= rcc->lstep;
+                        lmax *= rcc->lstep;//如果溢出值大于1.1并且已经处理了3帧以上，则将上限扩大（lmax）
                     else if( overflow < 0.9 )
-                        lmin /= rcc->lstep;
+                        lmin /= rcc->lstep;//如果溢出值小于0.9，则将下限缩小（lmin）
 
                     q = x264_clip3f(q, lmin, lmax);
                 }
@@ -2632,7 +2632,7 @@ static float rate_estimate_qscale( x264_t *h )
         if( rcc->single_frame_vbv )
             rcc->frame_size_planned = rcc->buffer_rate;
         /* Limit planned size by MinCR */
-        if( rcc->b_vbv )
+        if( rcc->b_vbv )//如果启用了VBV（b_vbv），将帧大小（frame_size_planned）限制在最大帧大小（frame_size_maximum）和预测帧大小之间，以遵守最小比特率限制（MinCR）
             rcc->frame_size_planned = X264_MIN( rcc->frame_size_planned, rcc->frame_size_maximum );
         rcc->frame_size_estimated = rcc->frame_size_planned;
         return q;

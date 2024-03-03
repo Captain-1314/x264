@@ -688,15 +688,15 @@ static void mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter
     /*---------------- Try all mode and calculate their score ---------------*/
     /* Disabled i16x16 for AVC-Intra compat */
     if( !h->param.i_avcintra_class )
-    {
+    {   //根据当前切片的类型（I帧或其他类型），确定使用的预测模式的范围（predict_16x16_mode_available函数返回可用的预测模式数组）
         const int8_t *predict_mode = predict_16x16_mode_available( h->mb.i_neighbour_intra );
 
-        /* Not heavily tuned */
+        /* Not heavily tuned *///然后，根据是否启用快速帧内模式（a->b_fast_intra），设置阈值参数（i16x16_thresh）来决定是否尝试16x16帧内预测模式
         static const uint8_t i16x16_thresh_lut[11] = { 2, 2, 2, 3, 3, 4, 4, 4, 4, 4, 4 };
         int i16x16_thresh = a->b_fast_intra ? (i16x16_thresh_lut[h->mb.i_subpel_refine]*i_satd_inter)>>1 : COST_MAX;
-
+        //如果不是无损编码（!h->mb.b_lossless）并且预测模式中包含I_PRED_16x16_P（平面模式）
         if( !h->mb.b_lossless && predict_mode[3] >= 0 )
-        {
+        {   //使用h->pixf.intra_mbcmp_x3_16x16函数计算16x16帧内预测模式的SATD
             h->pixf.intra_mbcmp_x3_16x16( p_src, p_dst, a->i_satd_i16x16_dir );
             a->i_satd_i16x16_dir[0] += lambda * bs_size_ue(0);
             a->i_satd_i16x16_dir[1] += lambda * bs_size_ue(1);
@@ -704,7 +704,7 @@ static void mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter
             COPY2_IF_LT( a->i_satd_i16x16, a->i_satd_i16x16_dir[0], a->i_predict16x16, 0 );
             COPY2_IF_LT( a->i_satd_i16x16, a->i_satd_i16x16_dir[1], a->i_predict16x16, 1 );
             COPY2_IF_LT( a->i_satd_i16x16, a->i_satd_i16x16_dir[2], a->i_predict16x16, 2 );
-
+            //更新16x16帧内预测模式的SATD值和预测模式索引
             /* Plane is expensive, so don't check it unless one of the previous modes was useful. */
             if( a->i_satd_i16x16 <= i16x16_thresh )
             {
@@ -717,7 +717,7 @@ static void mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter
         else
         {
             for( ; *predict_mode >= 0; predict_mode++ )
-            {
+            {   //并根据不同的预测模式计算编码开销
                 int i_satd;
                 int i_mode = *predict_mode;
 
@@ -734,39 +734,39 @@ static void mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter
         }
 
         if( h->sh.i_type == SLICE_TYPE_B )
-            /* cavlc mb type prefix */
+            /* cavlc mb type prefix *///根据表格i_mb_b_cost_table计算cavlc mb类型前缀的编码开销，并将其添加到16x16帧内预测模式的SATD值中
             a->i_satd_i16x16 += lambda * i_mb_b_cost_table[I_16x16];
-
+        //如果16x16帧内预测模式的SATD值超过阈值i16x16_thresh，则返回，否则继续进行其他帧内预测模式的分析
         if( a->i_satd_i16x16 > i16x16_thresh )
             return;
     }
 
     uint16_t *cost_i4x4_mode = h->cost_table->i4x4_mode[a->i_qp] + 8;
-    /* 8x8 prediction selection */
+    /* 8x8 prediction selection *///根据是否启用8x8帧内模式（flags & X264_ANALYSE_I8x8），设置阈值参数（i_satd_thresh）来决定是否尝试8x8帧内预测模式
     if( flags & X264_ANALYSE_I8x8 )
-    {
+    {   //创建了一个名为edge的32字节对齐的像素数组（即pixel类型的名为edge的36个元素的数组）。该数组用于存储边缘像素数据
         ALIGNED_ARRAY_32( pixel, edge,[36] );
-        x264_pixel_cmp_t sa8d = (h->pixf.mbcmp[0] == h->pixf.satd[0]) ? h->pixf.sa8d[PIXEL_8x8] : h->pixf.mbcmp[PIXEL_8x8];
-        int i_satd_thresh = a->i_mbrd ? COST_MAX : X264_MIN( i_satd_inter, a->i_satd_i16x16 );
-
+        x264_pixel_cmp_t sa8d = (h->pixf.mbcmp[0] == h->pixf.satd[0]) ? h->pixf.sa8d[PIXEL_8x8] : h->pixf.mbcmp[PIXEL_8x8];//用于计算8x8帧内预测块与原始块之间的像素比较值
+        int i_satd_thresh = a->i_mbrd ? COST_MAX : X264_MIN( i_satd_inter, a->i_satd_i16x16 );//根据a->i_mbrd的值来决定i_satd_thresh的取值
+        //将i_cost初始化为lambda * 4，其中lambda是一个常数，用于乘以4作为基本预测模式成本
         // FIXME some bias like in i4x4?
         int i_cost = lambda * 4; /* base predmode costs */
         h->mb.i_cbp_luma = 0;
 
         if( h->sh.i_type == SLICE_TYPE_B )
-            i_cost += lambda * i_mb_b_cost_table[I_8x8];
+            i_cost += lambda * i_mb_b_cost_table[I_8x8];//这里使用了i_mb_b_cost_table数组来获取特定预测模式的成本
 
         for( idx = 0;; idx++ )
         {
             int x = idx&1;
-            int y = idx>>1;
+            int y = idx>>1;//通过指针p_src_by和p_dst_by分别指向输入源图像和输出目标图像中当前8x8块的位置
             pixel *p_src_by = p_src + 8*x + 8*y*FENC_STRIDE;
             pixel *p_dst_by = p_dst + 8*x + 8*y*FDEC_STRIDE;
             int i_best = COST_MAX;
-            int i_pred_mode = x264_mb_predict_intra4x4_mode( h, 4*idx );
-
+            int i_pred_mode = x264_mb_predict_intra4x4_mode( h, 4*idx );//根据索引4*idx使用x264_mb_predict_intra4x4_mode函数预测当前8x8块的帧内4x4预测模式，并将结果存储在i_pred_mode中
+            //使用predict_8x8_mode_available函数获取可用的8x8预测模式数组
             const int8_t *predict_mode = predict_8x8_mode_available( a->b_avoid_topright, h->mb.i_neighbour8[idx], idx );
-            h->predict_8x8_filter( p_dst_by, edge, h->mb.i_neighbour8[idx], ALL_NEIGHBORS );
+            h->predict_8x8_filter( p_dst_by, edge, h->mb.i_neighbour8[idx], ALL_NEIGHBORS );//调用h->predict_8x8_filter函数对当前8x8块进行预测滤波，将结果存储在p_dst_by中
 
             if( h->pixf.intra_mbcmp_x9_8x8 && predict_mode[8] >= 0 )
             {
@@ -781,15 +781,15 @@ static void mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter
             }
             else
             {
-                if( !h->mb.b_lossless && predict_mode[5] >= 0 )
-                {
+                if( !h->mb.b_lossless && predict_mode[5] >= 0 )//如果不是无损编码，并且预测模式数组中的第5个元素大于等于0
+                {   //创建一个名为satd的16字节对齐的数组，用于存储不同预测模式下的SATD值
                     ALIGNED_ARRAY_16( int32_t, satd,[4] );
-                    h->pixf.intra_mbcmp_x3_8x8( p_src_by, edge, satd );
-                    int favor_vertical = satd[I_PRED_4x4_H] > satd[I_PRED_4x4_V];
+                    h->pixf.intra_mbcmp_x3_8x8( p_src_by, edge, satd );//调用h->pixf.intra_mbcmp_x3_8x8函数计算原始块和边缘块之间的像素比较值，并将结果存储在satd数组中
+                    int favor_vertical = satd[I_PRED_4x4_H] > satd[I_PRED_4x4_V];//根据satd[I_PRED_4x4_H]和satd[I_PRED_4x4_V]的值判断偏向垂直方向还是水平方向
                     if( i_pred_mode < 3 )
                         satd[i_pred_mode] -= 3 * lambda;
                     for( int i = 2; i >= 0; i-- )
-                    {
+                    {   //遍历satd数组，计算每个预测模式的成本，并更新最佳成本i_best和对应的预测模式索引
                         int cost = satd[i];
                         a->i_satd_i8x8_dir[idx][i] = cost + 4 * lambda;
                         COPY2_IF_LT( i_best, cost, a->i_predict8x8[idx], i );
@@ -810,52 +810,52 @@ static void mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter
 
                     if( h->mb.b_lossless )
                         x264_predict_lossless_8x8( h, p_dst_by, 0, idx, i_mode, edge );
-                    else
+                    else//根据当前预测模式i_mode调用相应的预测函数对当前8x8块进行预测，并将结果存储在p_dst_by中
                         h->predict_8x8[i_mode]( p_dst_by, edge );
-
+                    //调用sa8d函数计算预测块和原始块之间的SA8D值，并将结果存储在i_satd中
                     i_satd = sa8d( p_dst_by, FDEC_STRIDE, p_src_by, FENC_STRIDE );
-                    if( i_pred_mode == x264_mb_pred_mode4x4_fix(i_mode) )
+                    if( i_pred_mode == x264_mb_pred_mode4x4_fix(i_mode) )//如果当前预测模式与预测模式数组中的预测模式一致
                         i_satd -= 3 * lambda;
 
                     COPY2_IF_LT( i_best, i_satd, a->i_predict8x8[idx], i_mode );
                     a->i_satd_i8x8_dir[idx][i_mode] = i_satd + 4 * lambda;
                 }
-                i_cost += i_best + 3*lambda;
-
+                i_cost += i_best + 3*lambda;//更新总的编码开销i_cost，将i_best加到i_cost中
+                //如果idx等于3（表示已经分析了4个8x8块）或者i_cost大于i_satd_thresh（编码开销超过阈值），则跳出循环
                 if( idx == 3 || i_cost > i_satd_thresh )
                     break;
                 if( h->mb.b_lossless )
                     x264_predict_lossless_8x8( h, p_dst_by, 0, idx, a->i_predict8x8[idx], edge );
                 else
-                    h->predict_8x8[a->i_predict8x8[idx]]( p_dst_by, edge );
-                x264_macroblock_cache_intra8x8_pred( h, 2*x, 2*y, a->i_predict8x8[idx] );
+                    h->predict_8x8[a->i_predict8x8[idx]]( p_dst_by, edge );//调用相应的预测函数对当前8x8块进行预测，并将结果存储在p_dst_by中
+                x264_macroblock_cache_intra8x8_pred( h, 2*x, 2*y, a->i_predict8x8[idx] );//函数将最佳预测模式应用于2x2块的宏块缓存
             }
-            /* we need to encode this block now (for next ones) */
+            /* we need to encode this block now (for next ones) *///调用x264_mb_encode_i8x8函数对当前8x8块进行编码
             x264_mb_encode_i8x8( h, 0, idx, a->i_qp, a->i_predict8x8[idx], edge, 0 );
         }
 
         if( idx == 3 )
-        {
+        {   //将总的SA8D值i_cost存储在a->i_satd_i8x8中
             a->i_satd_i8x8 = i_cost;
             if( h->mb.i_skip_intra )
-            {
+            {   //将当前8x8块的预测结果复制到帧解码缓冲区的相应位置
                 h->mc.copy[PIXEL_16x16]( h->mb.pic.i8x8_fdec_buf, 16, p_dst, FDEC_STRIDE, 16 );
-                h->mb.pic.i8x8_nnz_buf[0] = M32( &h->mb.cache.non_zero_count[x264_scan8[ 0]] );
+                h->mb.pic.i8x8_nnz_buf[0] = M32( &h->mb.cache.non_zero_count[x264_scan8[ 0]] );//更新宏块的非零系数缓冲区，将预测结果的非零系数统计值存储在对应的位置
                 h->mb.pic.i8x8_nnz_buf[1] = M32( &h->mb.cache.non_zero_count[x264_scan8[ 2]] );
                 h->mb.pic.i8x8_nnz_buf[2] = M32( &h->mb.cache.non_zero_count[x264_scan8[ 8]] );
                 h->mb.pic.i8x8_nnz_buf[3] = M32( &h->mb.cache.non_zero_count[x264_scan8[10]] );
-                h->mb.pic.i8x8_cbp = h->mb.i_cbp_luma;
-                if( h->mb.i_skip_intra == 2 )
+                h->mb.pic.i8x8_cbp = h->mb.i_cbp_luma;//更新宏块的色度编码块模式，将宏块的亮度CBP值存储在h->mb.pic.i8x8_cbp中
+                if( h->mb.i_skip_intra == 2 )//则将宏块的离散余弦变换系数复制到宏块的离散余弦变换缓冲区中
                     h->mc.memcpy_aligned( h->mb.pic.i8x8_dct_buf, h->dct.luma8x8, sizeof(h->mb.pic.i8x8_dct_buf) );
             }
         }
         else
         {
             static const uint16_t cost_div_fix8[3] = {1024,512,341};
-            a->i_satd_i8x8 = COST_MAX;
+            a->i_satd_i8x8 = COST_MAX; //将a->i_satd_i8x8初始化为最大的成本值
             i_cost = (i_cost * cost_div_fix8[idx]) >> 8;
         }
-        /* Not heavily tuned */
+        /* Not heavily tuned *///如果启用了提前终止
         static const uint8_t i8x8_thresh[11] = { 4, 4, 4, 5, 5, 5, 6, 6, 6, 6, 6 };
         if( a->b_early_terminate && X264_MIN(i_cost, a->i_satd_i16x16) > (i_satd_inter*i8x8_thresh[h->mb.i_subpel_refine])>>2 )
             return;
@@ -863,24 +863,24 @@ static void mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter
 
     /* 4x4 prediction selection */
     if( flags & X264_ANALYSE_I4x4 )
-    {
+    {   //初始化总的成本i_cost
         int i_cost = lambda * (24+16); /* 24from JVT (SATD0), 16 from base predmode costs */
         int i_satd_thresh = a->b_early_terminate ? X264_MIN3( i_satd_inter, a->i_satd_i16x16, a->i_satd_i8x8 ) : COST_MAX;
         h->mb.i_cbp_luma = 0;
 
-        if( a->b_early_terminate && a->i_mbrd )
+        if( a->b_early_terminate && a->i_mbrd )//如果提前终止启用并且i_mbrd
             i_satd_thresh = i_satd_thresh * (10-a->b_fast_intra)/8;
 
-        if( h->sh.i_type == SLICE_TYPE_B )
+        if( h->sh.i_type == SLICE_TYPE_B )//如果当前帧的类型为B帧
             i_cost += lambda * i_mb_b_cost_table[I_4x4];
 
-        for( idx = 0;; idx++ )
+        for( idx = 0;; idx++ )//对每个4x4块进行处理，其中idx表示块的索引
         {
             pixel *p_src_by = p_src + block_idx_xy_fenc[idx];
             pixel *p_dst_by = p_dst + block_idx_xy_fdec[idx];
             int i_best = COST_MAX;
-            int i_pred_mode = x264_mb_predict_intra4x4_mode( h, idx );
-
+            int i_pred_mode = x264_mb_predict_intra4x4_mode( h, idx );//根据块的索引idx和邻域信息，确定预测模式i_pred_mode
+            //选择相应的预测模式数组predict_mode
             const int8_t *predict_mode = predict_4x4_mode_available( a->b_avoid_topright, h->mb.i_neighbour4[idx], idx );
 
             if( (h->mb.i_neighbour4[idx] & (MB_TOPRIGHT|MB_TOP)) == MB_TOP )
@@ -900,14 +900,14 @@ static void mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter
             }
             else
             {
-                if( !h->mb.b_lossless && predict_mode[5] >= 0 )
+                if( !h->mb.b_lossless && predict_mode[5] >= 0 )//如果不是无损编码且预测模式数组中的第5个模式大于等于0
                 {
                     ALIGNED_ARRAY_16( int32_t, satd,[4] );
-                    h->pixf.intra_mbcmp_x3_4x4( p_src_by, p_dst_by, satd );
+                    h->pixf.intra_mbcmp_x3_4x4( p_src_by, p_dst_by, satd );//使用intra_mbcmp_x3_4x4函数计算预测模式与目标块之间的成本
                     int favor_vertical = satd[I_PRED_4x4_H] > satd[I_PRED_4x4_V];
                     if( i_pred_mode < 3 )
                         satd[i_pred_mode] -= 3 * lambda;
-                    i_best = satd[I_PRED_4x4_DC]; a->i_predict4x4[idx] = I_PRED_4x4_DC;
+                    i_best = satd[I_PRED_4x4_DC]; a->i_predict4x4[idx] = I_PRED_4x4_DC;//根据成本选择最佳的预测模式，并将其存储在a->i_predict4x4[idx]中
                     COPY2_IF_LT( i_best, satd[I_PRED_4x4_H], a->i_predict4x4[idx], I_PRED_4x4_H );
                     COPY2_IF_LT( i_best, satd[I_PRED_4x4_V], a->i_predict4x4[idx], I_PRED_4x4_V );
 
@@ -930,14 +930,14 @@ static void mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter
                             x264_predict_lossless_4x4( h, p_dst_by, 0, idx, i_mode );
                         else
                             h->predict_4x4[i_mode]( p_dst_by );
-
+                        //根据最佳的预测模式进行预测，并计算预测模式与源块之间的成本
                         i_satd = h->pixf.mbcmp[PIXEL_4x4]( p_src_by, FENC_STRIDE, p_dst_by, FDEC_STRIDE );
                         if( i_pred_mode == x264_mb_pred_mode4x4_fix(i_mode) )
                         {
                             i_satd -= lambda * 3;
                             if( i_satd <= 0 )
                             {
-                                i_best = i_satd;
+                                i_best = i_satd;//更新总成本i_cost和预测模式a->i_predict4x4[idx]
                                 a->i_predict4x4[idx] = i_mode;
                                 break;
                             }
@@ -949,18 +949,18 @@ static void mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter
 
                 i_cost += i_best + 3 * lambda;
                 if( i_cost > i_satd_thresh || idx == 15 )
-                    break;
+                    break;//如果总成本超过了SATD阈值或者处理到了最后一个块（idx == 15），则退出循环
                 if( h->mb.b_lossless )
                     x264_predict_lossless_4x4( h, p_dst_by, 0, idx, a->i_predict4x4[idx] );
                 else
                     h->predict_4x4[a->i_predict4x4[idx]]( p_dst_by );
                 h->mb.cache.intra4x4_pred_mode[x264_scan8[idx]] = a->i_predict4x4[idx];
             }
-            /* we need to encode this block now (for next ones) */
+            /* we need to encode this block now (for next ones) *///编码
             x264_mb_encode_i4x4( h, 0, idx, a->i_qp, a->i_predict4x4[idx], 0 );
         }
-        if( idx == 15 )
-        {
+        if( idx == 15 )//如果循环结束时idx等于15，表示已经处理完了所有的块
+        {   //将总的SA4D值i_cost存储在a->i_satd_i4x4中，并进行一些后续的处理（如拷贝预测结果、更新非零系数等）
             a->i_satd_i4x4 = i_cost;
             if( h->mb.i_skip_intra )
             {
@@ -975,41 +975,41 @@ static void mb_analyse_intra( x264_t *h, x264_mb_analysis_t *a, int i_satd_inter
             }
         }
         else
-            a->i_satd_i4x4 = COST_MAX;
+            a->i_satd_i4x4 = COST_MAX;//否则，表示未能处理完所有的块，将a->i_satd_i4x4设为最大的成本值
     }
 }
 
 static void intra_rd( x264_t *h, x264_mb_analysis_t *a, int i_satd_thresh )
-{
+{   //根据早期终止标志a->b_early_terminate判断是否进行早期终止。如果不需要早期终止，则将i_satd_thresh设为最大代价值COST_MAX
     if( !a->b_early_terminate )
         i_satd_thresh = COST_MAX;
-
+    //针对16x16帧内预测模式进行判断。如果16x16帧内预测的SATD代价小于i_satd_thresh
     if( a->i_satd_i16x16 < i_satd_thresh )
-    {
+    {   //将当前宏块的类型h->mb.i_type设置为I_16x16（表示使用16x16帧内预测模式）
         h->mb.i_type = I_16x16;
         analyse_update_cache( h, a );
-        a->i_satd_i16x16 = rd_cost_mb( h, a->i_lambda2 );
+        a->i_satd_i16x16 = rd_cost_mb( h, a->i_lambda2 );//计算16x16帧内预测模式的码率失真代价，将结果存储在a->i_satd_i16x16中
     }
-    else
+    else//否则，将a->i_satd_i16x16设为最大代价值COST_MAX，表示该模式不可用
         a->i_satd_i16x16 = COST_MAX;
-
+    //针对4x4帧内预测模式进行判断。如果4x4帧内预测的SATD代价小于i_satd_thresh
     if( a->i_satd_i4x4 < i_satd_thresh )
-    {
+    {   //当前宏块的类型h->mb.i_type设置为I_4x4（表示使用4x4帧内预测模式）
         h->mb.i_type = I_4x4;
         analyse_update_cache( h, a );
-        a->i_satd_i4x4 = rd_cost_mb( h, a->i_lambda2 );
+        a->i_satd_i4x4 = rd_cost_mb( h, a->i_lambda2 );//计算4x4帧内预测模式的码率失真代价，将结果存储在a->i_satd_i4x4中
     }
-    else
+    else//将a->i_satd_i4x4设为最大代价值COST_MAX，表示该模式不可用
         a->i_satd_i4x4 = COST_MAX;
-
+    //针对8x8帧内预测模式进行判断。如果8x8帧内预测的SATD代价小于i_satd_thresh
     if( a->i_satd_i8x8 < i_satd_thresh )
-    {
+    {   //将当前宏块的类型h->mb.i_type设置为I_8x8（表示使用8x8帧内预测模式）
         h->mb.i_type = I_8x8;
         analyse_update_cache( h, a );
-        a->i_satd_i8x8 = rd_cost_mb( h, a->i_lambda2 );
-        a->i_cbp_i8x8_luma = h->mb.i_cbp_luma;
+        a->i_satd_i8x8 = rd_cost_mb( h, a->i_lambda2 );//计算8x8帧内预测模式的码率失真代价，将结果存储在a->i_satd_i8x8中
+        a->i_cbp_i8x8_luma = h->mb.i_cbp_luma;//将h->mb.i_cbp_luma赋值给a->i_cbp_i8x8_luma，表示8x8帧内预测模式下的亮度非零系数标记
     }
-    else
+    else//将a->i_satd_i8x8设为最大代价值COST_MAX，表示该模式不可用
         a->i_satd_i8x8 = COST_MAX;
 }
 
@@ -1257,62 +1257,62 @@ static void mb_analyse_inter_p16x16( x264_t *h, x264_mb_analysis_t *a )
     x264_me_t m;
     int i_mvc;
     ALIGNED_ARRAY_8( int16_t, mvc,[8],[2] );
-    int i_halfpel_thresh = INT_MAX;
+    int i_halfpel_thresh = INT_MAX;//i_halfpel_thresh用于保存半像素阈值，默认初始化为INT_MAX
     int *p_halfpel_thresh = (a->b_early_terminate && h->mb.pic.i_fref[0]>1) ? &i_halfpel_thresh : NULL;
 
     /* 16x16 Search on all ref frame */
-    m.i_pixel = PIXEL_16x16;
+    m.i_pixel = PIXEL_16x16;//进行16x16搜索
     LOAD_FENC( &m, h->mb.pic.p_fenc, 0, 0 );
 
     a->l0.me16x16.cost = INT_MAX;
     for( int i_ref = 0; i_ref < h->mb.pic.i_fref[0]; i_ref++ )
     {
-        m.i_ref_cost = REF_COST( 0, i_ref );
-        i_halfpel_thresh -= m.i_ref_cost;
+        m.i_ref_cost = REF_COST( 0, i_ref );//设置当前参考帧的参考代价
+        i_halfpel_thresh -= m.i_ref_cost;//更新i_halfpel_thresh的值
 
         /* search with ref */
-        LOAD_HPELS( &m, h->mb.pic.p_fref[0][i_ref], 0, i_ref, 0, 0 );
+        LOAD_HPELS( &m, h->mb.pic.p_fref[0][i_ref], 0, i_ref, 0, 0 );//载当前参考帧的像素和权重像素
         LOAD_WPELS( &m, h->mb.pic.p_fref_w[i_ref], 0, i_ref, 0, 0 );
-
+        //使用x264_mb_predict_mv_16x16函数预测运动矢量
         x264_mb_predict_mv_16x16( h, 0, i_ref, m.mvp );
 
         if( h->mb.ref_blind_dupe == i_ref )
         {
             CP32( m.mv, a->l0.mvc[0][0] );
-            x264_me_refine_qpel_refdupe( h, &m, p_halfpel_thresh );
+            x264_me_refine_qpel_refdupe( h, &m, p_halfpel_thresh );//如果h->mb.ref_blind_dupe等于当前参考帧索引，则调用x264_me_refine_qpel_refdupe函数进行四分之一像素精细化操作
         }
         else
-        {
+        {   //调用x264_mb_predict_mv_ref16x16函数预测参考帧运动矢量
             x264_mb_predict_mv_ref16x16( h, 0, i_ref, mvc, &i_mvc );
-            x264_me_search_ref( h, &m, mvc, i_mvc, p_halfpel_thresh );
+            x264_me_search_ref( h, &m, mvc, i_mvc, p_halfpel_thresh );//调用x264_me_search_ref函数进行运动估计
         }
 
         /* save mv for predicting neighbors */
-        CP32( h->mb.mvr[0][i_ref][h->mb.i_mb_xy], m.mv );
+        CP32( h->mb.mvr[0][i_ref][h->mb.i_mb_xy], m.mv );//复制运动矢量用于预测邻域
         CP32( a->l0.mvc[i_ref][0], m.mv );
 
         /* early termination
-         * SSD threshold would probably be better than SATD */
+         * SSD threshold would probably be better than SATD *///根据条件进行早期终止判断
         if( i_ref == 0
             && a->b_try_skip
             && m.cost-m.cost_mv < 300*a->i_lambda
             &&  abs(m.mv[0]-h->mb.cache.pskip_mv[0])
               + abs(m.mv[1]-h->mb.cache.pskip_mv[1]) <= 1
-            && x264_macroblock_probe_pskip( h ) )
+            && x264_macroblock_probe_pskip( h ) )//数检测到可以跳过当前宏块
         {
-            h->mb.i_type = P_SKIP;
+            h->mb.i_type = P_SKIP;//则将当前宏块类型设置为P_SKIP并更新缓存，然后返回
             analyse_update_cache( h, a );
             assert( h->mb.cache.pskip_mv[1] <= h->mb.mv_max_spel[1] || h->i_thread_frames == 1 );
             return;
         }
 
-        m.cost += m.i_ref_cost;
+        m.cost += m.i_ref_cost;//更新代价信息
         i_halfpel_thresh += m.i_ref_cost;
-
+        //如果当前参考帧的代价小于最小代价，则将当前参考帧的运动矢量和代价信息保存为最小代价信息
         if( m.cost < a->l0.me16x16.cost )
             h->mc.memcpy_aligned( &a->l0.me16x16, &m, sizeof(x264_me_t) );
     }
-
+    //将参考帧索引和运动矢量存储到宏块缓存中
     x264_macroblock_cache_ref( h, 0, 0, 4, 4, 0, a->l0.me16x16.i_ref );
     assert( a->l0.me16x16.mv[1] <= h->mb.mv_max_spel[1] || h->i_thread_frames == 1 );
 
@@ -1321,12 +1321,12 @@ static void mb_analyse_inter_p16x16( x264_t *h, x264_mb_analysis_t *a )
     {
         mb_init_fenc_cache( h, a->i_mbrd >= 2 || h->param.analyse.inter & X264_ANALYSE_PSUB8x8 );
         if( a->l0.me16x16.i_ref == 0 && M32( a->l0.me16x16.mv ) == M32( h->mb.cache.pskip_mv ) && !a->b_force_intra )
-        {
+        {   //根据条件判断是否将当前宏块的分区类型设置为D_16x16，并更新宏块缓存的运动矢量
             h->mb.i_partition = D_16x16;
             x264_macroblock_cache_mv_ptr( h, 0, 0, 4, 4, 0, a->l0.me16x16.mv );
-            a->l0.i_rd16x16 = rd_cost_mb( h, a->i_lambda2 );
+            a->l0.i_rd16x16 = rd_cost_mb( h, a->i_lambda2 );//计算D_16x16分区类型的残差代价
             if( !(h->mb.i_cbp_luma|h->mb.i_cbp_chroma) )
-                h->mb.i_type = P_SKIP;
+                h->mb.i_type = P_SKIP;//根据条件判断是否将当前宏块类型设置为P_SKIP
         }
     }
 }
@@ -2923,53 +2923,53 @@ void x264_macroblock_analyse( x264_t *h )
     h->mb.i_qp = x264_ratecontrol_mb_qp( h );
     /* If the QP of this MB is within 1 of the previous MB, code the same QP as the previous MB,
      * to lower the bit cost of the qp_delta.  Don't do this if QPRD is enabled. */
-    if( h->param.rc.i_aq_mode && h->param.analyse.i_subpel_refine < 10 )
+    if( h->param.rc.i_aq_mode && h->param.analyse.i_subpel_refine < 10 )//检查当前宏块的QP值与上一个宏块的QP值之差是否为1，并将QP值设置为上一个宏块的QP值，以降低qp_delta的比特成本。这个操作的目的是在相邻的宏块中尽量减少QP的变化，以减少qp_delta的编码开销
         h->mb.i_qp = abs(h->mb.i_qp - h->mb.i_last_qp) == 1 ? h->mb.i_last_qp : h->mb.i_qp;
 
     if( h->param.analyse.b_mb_info )
         h->fdec->effective_qp[h->mb.i_mb_xy] = h->mb.i_qp; /* Store the real analysis QP. */
-    mb_analyse_init( h, &analysis, h->mb.i_qp );
+    mb_analyse_init( h, &analysis, h->mb.i_qp );//调用mb_analyse_init函数进行宏块分析的初始化，并传入刚计算得到的QP值
 
     /*--------------------------- Do the analysis ---------------------------*/
-    if( h->sh.i_type == SLICE_TYPE_I )
+    if( h->sh.i_type == SLICE_TYPE_I )//帧内预测类型
     {
-intra_analysis:
-        if( analysis.i_mbrd )
+intra_analysis://进入intra_analysis标签处
+        if( analysis.i_mbrd )//如果宏块分析结果中的i_mbrd值大于0，调用mb_init_fenc_cache函数初始化帧编码缓存（根据i_mbrd的值来决定是否初始化帧缓存）
             mb_init_fenc_cache( h, analysis.i_mbrd >= 2 );
-        mb_analyse_intra( h, &analysis, COST_MAX );
-        if( analysis.i_mbrd )
+        mb_analyse_intra( h, &analysis, COST_MAX );//调用mb_analyse_intra函数进行帧内宏块分析
+        if( analysis.i_mbrd )//如果宏块分析结果中的i_mbrd值大于0，调用intra_rd函数进行帧内宏块的重建与决策
             intra_rd( h, &analysis, COST_MAX );
-
+        //计算SATD值，并根据不同的SATD值选择合适的帧内预测模式（I_16x16、I_4x4、I_8x8或I_PCM）
         i_cost = analysis.i_satd_i16x16;
         h->mb.i_type = I_16x16;
         COPY2_IF_LT( i_cost, analysis.i_satd_i4x4, h->mb.i_type, I_4x4 );
         COPY2_IF_LT( i_cost, analysis.i_satd_i8x8, h->mb.i_type, I_8x8 );
         if( analysis.i_satd_pcm < i_cost )
             h->mb.i_type = I_PCM;
-
+        //如果宏块分析结果中的i_mbrd值大于等于2，执行intra_rd_refine函数进行帧内宏块的细化
         else if( analysis.i_mbrd >= 2 )
             intra_rd_refine( h, &analysis );
     }
     else if( h->sh.i_type == SLICE_TYPE_P )
-    {
+    {   //声明一个变量b_skip用于标记当前宏块是否需要跳过
         int b_skip = 0;
-
+        //进行参考帧的预取操作
         h->mc.prefetch_ref( h->mb.pic.p_fref[0][0][h->mb.i_mb_x&3], h->mb.pic.i_stride[0], 0 );
 
         analysis.b_try_skip = 0;
-        if( analysis.b_force_intra )
-        {
+        if( analysis.b_force_intra )//表示需要强制使用帧内预测
+        {   //参数配置选择是否使用心理视觉优化
             if( !h->param.analyse.b_psy )
-            {
+            {   //然后初始化宏块的QP值，并跳转到intra_analysis进行帧内预测分析
                 mb_analyse_init_qp( h, &analysis, X264_MAX( h->mb.i_qp - h->mb.ip_offset, h->param.rc.i_qp_min ) );
                 goto intra_analysis;
             }
         }
-        else
+        else//如果analysis.b_force_intra为假，表示不需要强制使用帧内预测。这时会根据一些特殊的快速跳过逻辑以及宏块信息进行判断
         {
             /* Special fast-skip logic using information from mb_info. */
             if( h->fdec->mb_info && (h->fdec->mb_info[h->mb.i_mb_xy]&X264_MBINFO_CONSTANT) )
-            {
+            {   //如果不是SLICE_MBAFF（宏块自适应帧场）模式，并且参考帧之间的帧号差为1，并且没有加权预测（weighted prediction），并且参考帧的有效QP值小于等于当前宏块的QP值，那么可以直接跳过当前宏块
                 if( !SLICE_MBAFF && (h->fdec->i_frame - h->fref[0][0]->i_frame) == 1 && !h->sh.b_weighted_pred &&
                     h->fref[0][0]->effective_qp[h->mb.i_mb_xy] <= h->mb.i_qp )
                 {
@@ -2988,21 +2988,20 @@ intra_analysis:
                         M32( analysis.l0.me16x16.mv ) = 0;
                     }
                     goto skip_analysis;
-                }
+                }//否则，如果配置允许更新宏块信息（h->param.analyse.b_mb_info_update为真），则将当前宏块的X264_MBINFO_CONSTANT标志位清除
                 /* Reset the information accordingly */
                 else if( h->param.analyse.b_mb_info_update )
                     h->fdec->mb_info[h->mb.i_mb_xy] &= ~X264_MBINFO_CONSTANT;
             }
-
+            //接下来，判断当前宏块是否超出了帧的范围，如果是，则将b_skip标记为1，表示跳过当前宏块
             int skip_invalid = h->i_thread_frames > 1 && h->mb.cache.pskip_mv[1] > h->mb.mv_max_spel[1];
             /* If the current macroblock is off the frame, just skip it. */
             if( HAVE_INTERLACED && !MB_INTERLACED && h->mb.i_mb_y * 16 >= h->param.i_height && !skip_invalid )
                 b_skip = 1;
-            /* Fast P_SKIP detection */
+            /* Fast P_SKIP detection *///如果启用了快速P_SKIP检测（h->param.analyse.b_fast_pskip为真），则根据一些条件进行判断是否可以跳过当前宏块
             else if( h->param.analyse.b_fast_pskip )
             {
                 if( skip_invalid )
-                    // FIXME don't need to check this if the reference frame is done
                     {}
                 else if( h->param.analyse.i_subpel_refine >= 3 )
                     analysis.b_try_skip = 1;
@@ -3010,14 +3009,14 @@ intra_analysis:
                          h->mb.i_mb_type_top == P_SKIP ||
                          h->mb.i_mb_type_topleft == P_SKIP ||
                          h->mb.i_mb_type_topright == P_SKIP )
-                    b_skip = x264_macroblock_probe_pskip( h );
+                    b_skip = x264_macroblock_probe_pskip( h );//否则，根据当前宏块左侧、上方、左上方、右上方的宏块类型是否为P_SKIP来判断是否可以跳过当前宏块，具体判断逻辑在x264_macroblock_probe_pskip函数中
             }
         }
-
+        //进行参考帧的预取操作
         h->mc.prefetch_ref( h->mb.pic.p_fref[0][0][h->mb.i_mb_x&3], h->mb.pic.i_stride[0], 1 );
 
         if( b_skip )
-        {
+        {   //如果b_skip为真，表示可以跳过预测，将宏块类型设置为P_SKIP，分区类型设置为D_16x16，并设置相关的运动矢量
             h->mb.i_type = P_SKIP;
             h->mb.i_partition = D_16x16;
             assert( h->mb.cache.pskip_mv[1] <= h->mb.mv_max_spel[1] || h->i_thread_frames == 1 );
@@ -3027,23 +3026,23 @@ skip_analysis:
                 M32( h->mb.mvr[0][i][h->mb.i_mb_xy] ) = 0;
         }
         else
-        {
+        {   //如果b_skip为假，表示不能跳过预测，则继续执行帧间预测的相关操作
             const unsigned int flags = h->param.analyse.inter;
             int i_type;
             int i_partition;
             int i_satd_inter, i_satd_intra;
-
+            //加载预测分析的相关成本信息
             mb_analyse_load_costs( h, &analysis );
-
+            //接下来，根据预测分析进行帧间16x16预测
             mb_analyse_inter_p16x16( h, &analysis );
-
+            //如果当前宏块的类型为P_SKIP，表示可以跳过当前宏块的预测
             if( h->mb.i_type == P_SKIP )
             {
                 for( int i = 1; i < h->mb.pic.i_fref[0]; i++ )
                     M32( h->mb.mvr[0][i][h->mb.i_mb_xy] ) = 0;
                 return;
             }
-
+            //接下来，根据参数配置判断是否需要进行P帧8x8预测，并进行相应的预测分析
             if( flags & X264_ANALYSE_PSUB16x16 )
             {
                 if( h->param.analyse.b_mixed_references )
@@ -3051,12 +3050,12 @@ skip_analysis:
                 else
                     mb_analyse_inter_p8x8( h, &analysis );
             }
-
+            //根据预测分析的结果选择最佳的帧间预测模式
             /* Select best inter mode */
             i_type = P_L0;
             i_partition = D_16x16;
             i_cost = analysis.l0.me16x16.cost;
-
+            //如果允许8x8预测，并且不早停（analysis.b_early_terminate为假），或者8x8预测的成本比16x16预测更低，那么选择P_8x8作为预测模式，D_8x8作为分区类型
             if( ( flags & X264_ANALYSE_PSUB16x16 ) && (!analysis.b_early_terminate ||
                 analysis.l0.i_cost8x8 < analysis.l0.me16x16.cost) )
             {
@@ -3064,18 +3063,18 @@ skip_analysis:
                 i_partition = D_8x8;
                 i_cost = analysis.l0.i_cost8x8;
 
-                /* Do sub 8x8 */
+                /* Do sub 8x8 *///如果允许进行8x8子块预测（flags & X264_ANALYSE_PSUB8x8为真），则对每个4x4子块进行预测分析，并选择最佳的子块预测模式
                 if( flags & X264_ANALYSE_PSUB8x8 )
                 {
-                    for( int i = 0; i < 4; i++ )
-                    {
+                    for( int i = 0; i < 4; i++ )//对每个4x4子块进行预测分析，并选择最佳的子块预测模式
+                    {   //首先对每个4x4子块进行预测分析，然后计算阈值i_thresh8x4，该阈值是该子块的两个8x4子块的运动矢量成本之和
                         mb_analyse_inter_p4x4( h, &analysis, i );
                         int i_thresh8x4 = analysis.l0.me4x4[i][1].cost_mv + analysis.l0.me4x4[i][2].cost_mv;
                         if( !analysis.b_early_terminate || analysis.l0.i_cost4x4[i] < analysis.l0.me8x8[i].cost + i_thresh8x4 )
-                        {
+                        {   //如果不早停（!analysis.b_early_terminate为真），或者4x4子块的成本比8x8预测的成本加上阈值要低，则选择4x4子块预测
                             int i_cost8x8 = analysis.l0.i_cost4x4[i];
                             h->mb.i_sub_partition[i] = D_L0_4x4;
-
+                            //据选择的子块预测模式，进行相应的预测分析，并更新宏块的分区类型和成本
                             mb_analyse_inter_p8x4( h, &analysis, i );
                             COPY2_IF_LT( i_cost8x8, analysis.l0.i_cost8x4[i],
                                          h->mb.i_sub_partition[i], D_L0_8x4 );
@@ -3085,60 +3084,60 @@ skip_analysis:
                                          h->mb.i_sub_partition[i], D_L0_4x8 );
 
                             i_cost += i_cost8x8 - analysis.l0.me8x8[i].cost;
-                        }
+                        }//调用mb_cache_mv_p8x8函数，将预测分析的运动矢量缓存到宏块的相应位置
                         mb_cache_mv_p8x8( h, &analysis, i );
                     }
                     analysis.l0.i_cost8x8 = i_cost;
                 }
             }
 
-            /* Now do 16x8/8x16 */
-            int i_thresh16x8 = analysis.l0.me8x8[1].cost_mv + analysis.l0.me8x8[2].cost_mv;
+            /* Now do 16x8/8x16 *///在之前的分析基础上，进行16x8和8x16子块的预测分析，并选择最佳的子块预测模式
+            int i_thresh16x8 = analysis.l0.me8x8[1].cost_mv + analysis.l0.me8x8[2].cost_mv;//计算阈值i_thresh16x8，该阈值是两个8x8子块的运动矢量成本之和
             if( ( flags & X264_ANALYSE_PSUB16x16 ) && (!analysis.b_early_terminate ||
-                analysis.l0.i_cost8x8 < analysis.l0.me16x16.cost + i_thresh16x8) )
+                analysis.l0.i_cost8x8 < analysis.l0.me16x16.cost + i_thresh16x8) )//通过比较阈值和8x8子块的成本，判断是否选择16x8预测模式
             {
                 int i_avg_mv_ref_cost = (analysis.l0.me8x8[2].cost_mv + analysis.l0.me8x8[2].i_ref_cost
                                       + analysis.l0.me8x8[3].cost_mv + analysis.l0.me8x8[3].i_ref_cost + 1) >> 1;
                 analysis.i_cost_est16x8[1] = analysis.i_satd8x8[0][2] + analysis.i_satd8x8[0][3] + i_avg_mv_ref_cost;
-
+                //进行16x8子块的预测分析，并更新宏块的类型和分区类型
                 mb_analyse_inter_p16x8( h, &analysis, i_cost );
                 COPY3_IF_LT( i_cost, analysis.l0.i_cost16x8, i_type, P_L0, i_partition, D_16x8 );
-
+                //计算另一个8x16子块预测模式的成本估计值analysis.i_cost_est8x16[1]，该值是两个8x8子块的SATD成本之和，再加上平均运动矢量和参考帧成本的一半
                 i_avg_mv_ref_cost = (analysis.l0.me8x8[1].cost_mv + analysis.l0.me8x8[1].i_ref_cost
                                   + analysis.l0.me8x8[3].cost_mv + analysis.l0.me8x8[3].i_ref_cost + 1) >> 1;
                 analysis.i_cost_est8x16[1] = analysis.i_satd8x8[0][1] + analysis.i_satd8x8[0][3] + i_avg_mv_ref_cost;
-
+                //进行8x16子块的预测分析，并更新宏块的类型和分区类型
                 mb_analyse_inter_p8x16( h, &analysis, i_cost );
                 COPY3_IF_LT( i_cost, analysis.l0.i_cost8x16, i_type, P_L0, i_partition, D_8x16 );
             }
-
+            //将当前宏块的分区类型保存到h->mb.i_partition中
             h->mb.i_partition = i_partition;
 
             /* refine qpel */
             //FIXME mb_type costs?
             if( analysis.i_mbrd || !h->mb.i_subpel_refine )
-            {
+            {//然后，根据分区类型进行子像素精化。如果analysis.i_mbrd不为零或者h->mb.i_subpel_refine为假，则不进行精化，留待后续处理
                 /* refine later */
             }
             else if( i_partition == D_16x16 )
-            {
+            {   //如果分区类型为D_16x16，调用x264_me_refine_qpel函数对16x16子块的运动估计进行子像素精化，并将成本赋值给i_cost
                 x264_me_refine_qpel( h, &analysis.l0.me16x16 );
                 i_cost = analysis.l0.me16x16.cost;
             }
             else if( i_partition == D_16x8 )
-            {
+            {   //如果分区类型为D_16x8，调用x264_me_refine_qpel函数对两个16x8子块的运动估计进行子像素精化，并将两个子块的成本相加赋值给i_cost
                 x264_me_refine_qpel( h, &analysis.l0.me16x8[0] );
                 x264_me_refine_qpel( h, &analysis.l0.me16x8[1] );
                 i_cost = analysis.l0.me16x8[0].cost + analysis.l0.me16x8[1].cost;
             }
             else if( i_partition == D_8x16 )
-            {
+            {   //如果分区类型为D_8x16，调用x264_me_refine_qpel函数对两个8x16子块的运动估计进行子像素精化，并将两个子块的成本相加赋值给i_cost
                 x264_me_refine_qpel( h, &analysis.l0.me8x16[0] );
                 x264_me_refine_qpel( h, &analysis.l0.me8x16[1] );
                 i_cost = analysis.l0.me8x16[0].cost + analysis.l0.me8x16[1].cost;
             }
             else if( i_partition == D_8x8 )
-            {
+            {   //如果分区类型为D_8x8，通过循环遍历4个8x8子块，根据子分区类型进行相应的子像素精化，并将各个子块的成本累加到i_cost中
                 i_cost = 0;
                 for( int i8x8 = 0; i8x8 < 4; i8x8++ )
                 {
@@ -3178,7 +3177,7 @@ skip_analysis:
                 }
             }
 
-            if( h->mb.b_chroma_me )
+            if( h->mb.b_chroma_me )//检查h->mb.b_chroma_me是否为真，如果是，则进行色度运动估计
             {
                 if( CHROMA444 )
                 {
@@ -3186,77 +3185,77 @@ skip_analysis:
                     mb_analyse_intra_chroma( h, &analysis );
                 }
                 else
-                {
+                {   //先调用mb_analyse_intra_chroma函数对色度分量进行帧内预测分析，然后调用mb_analyse_intra函数对宏块进行帧内预测分析，其中成本减去了analysis.i_satd_chroma
                     mb_analyse_intra_chroma( h, &analysis );
                     mb_analyse_intra( h, &analysis, i_cost - analysis.i_satd_chroma );
-                }
+                }//将色度分量的analysis.i_satd_chroma累加到analysis.i_satd_i16x16、analysis.i_satd_i8x8和analysis.i_satd_i4x4中
                 analysis.i_satd_i16x16 += analysis.i_satd_chroma;
                 analysis.i_satd_i8x8   += analysis.i_satd_chroma;
                 analysis.i_satd_i4x4   += analysis.i_satd_chroma;
             }
-            else
+            else//则只进行宏块的帧内预测分析，调用mb_analyse_intra函数
                 mb_analyse_intra( h, &analysis, i_cost );
-
+            //通过比较analysis.i_satd_i16x16、analysis.i_satd_i8x8和analysis.i_satd_i4x4的值，选取最小的一个作为i_satd_intra
             i_satd_inter = i_cost;
             i_satd_intra = X264_MIN3( analysis.i_satd_i16x16,
                                       analysis.i_satd_i8x8,
                                       analysis.i_satd_i4x4 );
 
             if( analysis.i_mbrd )
-            {
+            {   //调用mb_analyse_p_rd函数对宏块进行P帧预测分析，传递的成本参数为i_satd_inter和i_satd_intra中的较小值
                 mb_analyse_p_rd( h, &analysis, X264_MIN(i_satd_inter, i_satd_intra) );
                 i_type = P_L0;
                 i_partition = D_16x16;
-                i_cost = analysis.l0.i_rd16x16;
+                i_cost = analysis.l0.i_rd16x16;//调用mb_analyse_p_rd函数对宏块进行P帧预测分析，传递的成本参数为i_satd_inter和i_satd_intra中的较小值
                 COPY2_IF_LT( i_cost, analysis.l0.i_cost16x8, i_partition, D_16x8 );
                 COPY2_IF_LT( i_cost, analysis.l0.i_cost8x16, i_partition, D_8x16 );
                 COPY3_IF_LT( i_cost, analysis.l0.i_cost8x8, i_partition, D_8x8, i_type, P_8x8 );
                 h->mb.i_type = i_type;
                 h->mb.i_partition = i_partition;
-                if( i_cost < COST_MAX )
+                if( i_cost < COST_MAX )//如果i_cost小于COST_MAX，调用mb_analyse_transform_rd函数对宏块进行变换与量化的预测分析，更新i_satd_inter和i_cost
                     mb_analyse_transform_rd( h, &analysis, &i_satd_inter, &i_cost );
-                intra_rd( h, &analysis, i_satd_inter * 5/4 + 1 );
+                intra_rd( h, &analysis, i_satd_inter * 5/4 + 1 );//调用intra_rd函数对宏块进行帧内预测的重建决策，传递的成本参数为i_satd_inter的5/4倍加1
             }
-
+            //接下来，通过比较i_cost和各个帧内预测模式的成本，选取最小的一个模式作为i_type，更新h->mb.i_type
             COPY2_IF_LT( i_cost, analysis.i_satd_i16x16, i_type, I_16x16 );
             COPY2_IF_LT( i_cost, analysis.i_satd_i8x8, i_type, I_8x8 );
             COPY2_IF_LT( i_cost, analysis.i_satd_i4x4, i_type, I_4x4 );
             COPY2_IF_LT( i_cost, analysis.i_satd_pcm, i_type, I_PCM );
 
             h->mb.i_type = i_type;
-
+            //首先检查analysis.b_force_intra是否为真，并且当前宏块的类型i_type不是帧内预测类型
             if( analysis.b_force_intra && !IS_INTRA(i_type) )
             {
                 /* Intra masking: copy fdec to fenc and re-encode the block as intra in order to make it appear as if
                  * it was an inter block. */
-                analyse_update_cache( h, &analysis );
-                x264_macroblock_encode( h );
-                for( int p = 0; p < (CHROMA444 ? 3 : 1); p++ )
+                analyse_update_cache( h, &analysis );//调用analyse_update_cache函数更新缓存
+                x264_macroblock_encode( h );//调用x264_macroblock_encode函数对宏块进行编码
+                for( int p = 0; p < (CHROMA444 ? 3 : 1); p++ )//将帧解码图像拷贝到帧编码图像中，使其看起来像是一个帧间预测块
                     h->mc.copy[PIXEL_16x16]( h->mb.pic.p_fenc[p], FENC_STRIDE, h->mb.pic.p_fdec[p], FDEC_STRIDE, 16 );
                 if( !CHROMA444 )
-                {
+                {   //如果色度采样格式不是CHROMA444，还会将色度分量进行相应的拷贝
                     int height = 16 >> CHROMA_V_SHIFT;
                     h->mc.copy[PIXEL_8x8]  ( h->mb.pic.p_fenc[1], FENC_STRIDE, h->mb.pic.p_fdec[1], FDEC_STRIDE, height );
                     h->mc.copy[PIXEL_8x8]  ( h->mb.pic.p_fenc[2], FENC_STRIDE, h->mb.pic.p_fdec[2], FDEC_STRIDE, height );
-                }
+                }//调用mb_analyse_init_qp函数初始化宏块的QP值
                 mb_analyse_init_qp( h, &analysis, X264_MAX( h->mb.i_qp - h->mb.ip_offset, h->param.rc.i_qp_min ) );
-                goto intra_analysis;
+                goto intra_analysis;//跳转到intra_analysis标签执行后续操作
             }
-
+            //检查analysis.i_mbrd是否大于等于2，并且当前宏块的类型不是I_PCM类型
             if( analysis.i_mbrd >= 2 && h->mb.i_type != I_PCM )
             {
                 if( IS_INTRA( h->mb.i_type ) )
-                {
+                {   //如果当前宏块类型是帧内预测类型，调用intra_rd_refine函数对宏块进行帧内预测的细化
                     intra_rd_refine( h, &analysis );
                 }
                 else if( i_partition == D_16x16 )
-                {
+                {   //如果分区类型是D_16x16，调用x264_me_refine_qpel_rd函数对16x16块进行亚像素运动估计的细化
                     x264_macroblock_cache_ref( h, 0, 0, 4, 4, 0, analysis.l0.me16x16.i_ref );
                     analysis.l0.me16x16.cost = i_cost;
                     x264_me_refine_qpel_rd( h, &analysis.l0.me16x16, analysis.i_lambda2, 0, 0 );
                 }
                 else if( i_partition == D_16x8 )
-                {
+                {   //如果分区类型是D_16x8，先设置宏块的子分区模式，然后分别对两个8x8子块进行亚像素运动估计的细化
                     M32( h->mb.i_sub_partition ) = D_L0_8x8 * 0x01010101;
                     x264_macroblock_cache_ref( h, 0, 0, 4, 2, 0, analysis.l0.me16x8[0].i_ref );
                     x264_macroblock_cache_ref( h, 0, 2, 4, 2, 0, analysis.l0.me16x8[1].i_ref );
@@ -3264,7 +3263,7 @@ skip_analysis:
                     x264_me_refine_qpel_rd( h, &analysis.l0.me16x8[1], analysis.i_lambda2, 8, 0 );
                 }
                 else if( i_partition == D_8x16 )
-                {
+                {   //如果分区类型是D_8x16，先设置宏块的子分区模式，然后分别对两个8x8子块进行亚像素运动估计的细化
                     M32( h->mb.i_sub_partition ) = D_L0_8x8 * 0x01010101;
                     x264_macroblock_cache_ref( h, 0, 0, 2, 4, 0, analysis.l0.me8x16[0].i_ref );
                     x264_macroblock_cache_ref( h, 2, 0, 2, 4, 0, analysis.l0.me8x16[1].i_ref );
@@ -3272,7 +3271,7 @@ skip_analysis:
                     x264_me_refine_qpel_rd( h, &analysis.l0.me8x16[1], analysis.i_lambda2, 4, 0 );
                 }
                 else if( i_partition == D_8x8 )
-                {
+                {   //如果分区类型是D_8x8，先调用analyse_update_cache函数更新缓存，然后根据宏块的子分区模式，对每个8x8子块进行亚像素运动估计的细化
                     analyse_update_cache( h, &analysis );
                     for( int i8x8 = 0; i8x8 < 4; i8x8++ )
                     {
@@ -3307,7 +3306,7 @@ skip_analysis:
         int i_bskip_cost = COST_MAX;
         int b_skip = 0;
 
-        if( analysis.i_mbrd )
+        if( analysis.i_mbrd )//则调用mb_init_fenc_cache函数初始化帧编码图像的缓存
             mb_init_fenc_cache( h, analysis.i_mbrd >= 2 );
 
         h->mb.i_type = B_SKIP;
@@ -3332,68 +3331,68 @@ skip_analysis:
                     b_skip = 0;
             }
         }
-        else
+        else//直接调用x264_mb_predict_mv_direct16x16函数进行宏块的直接运动矢量预测，不进行统计
             analysis.b_direct_available = x264_mb_predict_mv_direct16x16( h, NULL );
 
         analysis.b_try_skip = 0;
         if( analysis.b_direct_available )
-        {
+        {   //如果!h->mb.b_direct_auto_write为真，调用x264_mb_mc函数进行宏块的亚像素运动补偿
             if( !h->mb.b_direct_auto_write )
                 x264_mb_mc( h );
-            /* If the current macroblock is off the frame, just skip it. */
+            /* If the current macroblock is off the frame, just skip it. *///如果存在隔行扫描且当前宏块不是隔行扫描宏块，且当前宏块在帧中的位置超过了图像高度的一部分，将跳过标志b_skip设置为1，表示跳过当前宏块的编码
             if( HAVE_INTERLACED && !MB_INTERLACED && h->mb.i_mb_y * 16 >= h->param.i_height )
                 b_skip = 1;
             else if( analysis.i_mbrd )
-            {
+            {   //调用ssd_mb函数计算当前宏块的块失真
                 i_bskip_cost = ssd_mb( h );
-                /* 6 = minimum cavlc cost of a non-skipped MB */
+                /* 6 = minimum cavlc cost of a non-skipped MB *///计算非跳过宏块的最小Cavlc编码开销，即非跳过宏块的最小编码代价
                 b_skip = h->mb.b_skip_mc = i_bskip_cost <= ((6 * analysis.i_lambda2 + 128) >> 8);
             }
             else if( !h->mb.b_direct_auto_write )
-            {
+            {   //调用x264_macroblock_probe_bskip函数进行宏块的跳过探测
                 /* Conditioning the probe on neighboring block types
                  * doesn't seem to help speed or quality. */
                 analysis.b_try_skip = x264_macroblock_probe_bskip( h );
-                if( h->param.analyse.i_subpel_refine < 3 )
+                if( h->param.analyse.i_subpel_refine < 3 )//如果亚像素运动估计的细化等级小于3，将跳过标志b_skip设置为跳过探测的结果analysis.b_try_skip
                     b_skip = analysis.b_try_skip;
             }
             /* Set up MVs for future predictors */
             if( b_skip )
-            {
+            {   //对于参考图像列表0中的每个参考图像，将当前宏块的运动矢量设置为0
                 for( int i = 0; i < h->mb.pic.i_fref[0]; i++ )
                     M32( h->mb.mvr[0][i][h->mb.i_mb_xy] ) = 0;
                 for( int i = 0; i < h->mb.pic.i_fref[1]; i++ )
-                    M32( h->mb.mvr[1][i][h->mb.i_mb_xy] ) = 0;
+                    M32( h->mb.mvr[1][i][h->mb.i_mb_xy] ) = 0;//对于参考图像列表1中的每个参考图像，将当前宏块的运动矢量设置为0
             }
         }
 
         if( !b_skip )
         {
-            const unsigned int flags = h->param.analyse.inter;
+            const unsigned int flags = h->param.analyse.inter;//用于存储分析参数中的inter标志
             int i_type;
             int i_partition;
             int i_satd_inter;
             h->mb.b_skip_mc = 0;
             h->mb.i_type = B_DIRECT;
-
+            //调用mb_analyse_load_costs函数加载分析所需的代价数据
             mb_analyse_load_costs( h, &analysis );
 
             /* select best inter mode */
             /* direct must be first */
             if( analysis.b_direct_available )
-                mb_analyse_inter_direct( h, &analysis );
-
+                mb_analyse_inter_direct( h, &analysis );//如果直接模式可用，调用mb_analyse_inter_direct函数进行直接帧间分析
+            //调用mb_analyse_inter_b16x16函数进行16x16块的帧间分析
             mb_analyse_inter_b16x16( h, &analysis );
 
             if( h->mb.i_type == B_SKIP )
             {
                 for( int i = 1; i < h->mb.pic.i_fref[0]; i++ )
-                    M32( h->mb.mvr[0][i][h->mb.i_mb_xy] ) = 0;
+                    M32( h->mb.mvr[0][i][h->mb.i_mb_xy] ) = 0;//对于参考图像列表0中的每个参考图像，将当前宏块的运动矢量设置为0
                 for( int i = 1; i < h->mb.pic.i_fref[1]; i++ )
-                    M32( h->mb.mvr[1][i][h->mb.i_mb_xy] ) = 0;
+                    M32( h->mb.mvr[1][i][h->mb.i_mb_xy] ) = 0;//对于参考图像列表1中的每个参考图像，将当前宏块的运动矢量设置为0
                 return;
             }
-
+            //根据各种帧间预测模式的代价，选择最佳的帧间预测模式
             i_type = B_L0_L0;
             i_partition = D_16x16;
             i_cost = analysis.l0.me16x16.cost;
@@ -3402,33 +3401,33 @@ skip_analysis:
             COPY2_IF_LT( i_cost, analysis.i_cost16x16direct, i_type, B_DIRECT );
 
             if( analysis.i_mbrd && analysis.b_early_terminate && analysis.i_cost16x16direct <= i_cost * 33/32 )
-            {
-                mb_analyse_b_rd( h, &analysis, i_cost );
+            {   //如果启用了宏块级B帧率失真优化，并且启用了提前终止，并且直接模式的代价小于等于当前最佳模式代价的33/32倍
+                mb_analyse_b_rd( h, &analysis, i_cost );//调用mb_analyse_b_rd函数进行B帧率失真优化分析，传递当前最佳模式的代价
                 if( i_bskip_cost < analysis.i_rd16x16direct &&
                     i_bskip_cost < analysis.i_rd16x16bi &&
                     i_bskip_cost < analysis.l0.i_rd16x16 &&
                     i_bskip_cost < analysis.l1.i_rd16x16 )
-                {
-                    h->mb.i_type = B_SKIP;
-                    analyse_update_cache( h, &analysis );
-                    return;
+                {   //如果跳过宏块的代价小于直接模式、双向模式和参考图像列表的代价：
+                    h->mb.i_type = B_SKIP;//将宏块类型设置为B_SKIP
+                    analyse_update_cache( h, &analysis );//更新分析缓存
+                    return;//返回，结束宏块的编码过程
                 }
             }
 
             if( flags & X264_ANALYSE_BSUB16x16 )
-            {
+            {   //根据h->param.analyse.b_mixed_references的值选择相应的帧间分析函数，是混合参考帧的情况下调用mb_analyse_inter_b8x8_mixed_ref函数
                 if( h->param.analyse.b_mixed_references )
                     mb_analyse_inter_b8x8_mixed_ref( h, &analysis );
-                else
+                else//否则调用mb_analyse_inter_b8x8函数
                     mb_analyse_inter_b8x8( h, &analysis );
-
+                //通过比较当前模式的代价与之前选择的最佳模式的代价，更新最佳模式的代价、宏块类型和分区类型
                 COPY3_IF_LT( i_cost, analysis.i_cost8x8bi, i_type, B_8x8, i_partition, D_8x8 );
 
                 /* Try to estimate the cost of b16x8/b8x16 based on the satd scores of the b8x8 modes */
                 int i_cost_est16x8bi_total = 0, i_cost_est8x16bi_total = 0;
                 int i_mb_type, i_partition16x8[2], i_partition8x16[2];
                 for( int i = 0; i < 2; i++ )
-                {
+                {   //通过计算b16x8和b8x16模式的估计代价，选择估计代价较低的模式进行分析。首先计算16x8模式的估计代价，并根据估计代价和lambda值调整代价，然后计算8x16模式的估计代价，并根据估计代价和lambda值调整代价
                     int avg_l0_mv_ref_cost, avg_l1_mv_ref_cost;
                     int i_l0_satd, i_l1_satd, i_bi_satd, i_best_cost;
                     // 16x8
@@ -3465,7 +3464,7 @@ skip_analysis:
                 i_mb_type = B_L0_L0 + (i_partition8x16[0]>>2) * 3 + (i_partition8x16[1]>>2);
                 analysis.i_cost_est8x16[1] += analysis.i_lambda * i_mb_b16x8_cost_table[i_mb_type];
                 i_cost_est8x16bi_total = analysis.i_cost_est8x16[0] + analysis.i_cost_est8x16[1];
-
+                //接下来，根据是否启用了提前终止和估计代价，选择分析16x8模式或8x16模式
                 /* We can gain a little speed by checking the mode with the lowest estimated cost first */
                 int try_16x8_first = i_cost_est16x8bi_total < i_cost_est8x16bi_total;
                 if( try_16x8_first && (!analysis.b_early_terminate || i_cost_est16x8bi_total < i_cost) )
@@ -3479,26 +3478,26 @@ skip_analysis:
                     COPY3_IF_LT( i_cost, analysis.i_cost8x16bi, i_type, analysis.i_mb_type8x16, i_partition, D_8x16 );
                 }
                 if( !try_16x8_first && (!analysis.b_early_terminate || i_cost_est16x8bi_total < i_cost) )
-                {
+                {   //最后，如果需要，根据提前终止和估计代价再次选择分析16x8模式
                     mb_analyse_inter_b16x8( h, &analysis, i_cost );
                     COPY3_IF_LT( i_cost, analysis.i_cost16x8bi, i_type, analysis.i_mb_type16x8, i_partition, D_16x8 );
                 }
             }
 
             if( analysis.i_mbrd || !h->mb.i_subpel_refine )
-            {
+            {   //如果analysis.i_mbrd为真或者h->mb.i_subpel_refine为假，则跳过细化操作
                 /* refine later */
             }
             /* refine qpel */
             else if( i_partition == D_16x16 )
-            {
+            {   //如果分区类型为D_16x16，分别对L0和L1参考帧进行细化
                 analysis.l0.me16x16.cost -= analysis.i_lambda * i_mb_b_cost_table[B_L0_L0];
                 analysis.l1.me16x16.cost -= analysis.i_lambda * i_mb_b_cost_table[B_L1_L1];
                 if( i_type == B_L0_L0 )
-                {
+                {   //根据预测的代价和lambda值调整代价，然后调用x264_me_refine_qpel函数进行亚像素级的细化操作
                     x264_me_refine_qpel( h, &analysis.l0.me16x16 );
                     i_cost = analysis.l0.me16x16.cost
-                           + analysis.i_lambda * i_mb_b_cost_table[B_L0_L0];
+                           + analysis.i_lambda * i_mb_b_cost_table[B_L0_L0];//根据细化后的代价和调整后的代价，更新i_cost的值
                 }
                 else if( i_type == B_L1_L1 )
                 {
@@ -3513,27 +3512,27 @@ skip_analysis:
                 }
             }
             else if( i_partition == D_16x8 )
-            {
+            {   //果分区类型为D_16x8，循环遍历两个子分区
                 for( int i = 0; i < 2; i++ )
-                {
+                {   //如果子分区的类型不是D_L1_8x8，则对L0参考帧进行细化操作；
                     if( analysis.i_mb_partition16x8[i] != D_L1_8x8 )
                         x264_me_refine_qpel( h, &analysis.l0.me16x8[i] );
-                    if( analysis.i_mb_partition16x8[i] != D_L0_8x8 )
+                    if( analysis.i_mb_partition16x8[i] != D_L0_8x8 )//如果子分区的类型不是D_L0_8x8，则对L1参考帧进行细化操作
                         x264_me_refine_qpel( h, &analysis.l1.me16x8[i] );
                 }
             }
             else if( i_partition == D_8x16 )
-            {
+            {   //如果分区类型为D_8x16，与D_16x8类似，循环遍历两个子分区
                 for( int i = 0; i < 2; i++ )
-                {
+                {   //如果子分区的类型不是D_L1_8x8，则对L0参考帧进行细化操作
                     if( analysis.i_mb_partition8x16[i] != D_L1_8x8 )
                         x264_me_refine_qpel( h, &analysis.l0.me8x16[i] );
-                    if( analysis.i_mb_partition8x16[i] != D_L0_8x8 )
+                    if( analysis.i_mb_partition8x16[i] != D_L0_8x8 )//如果子分区的类型不是D_L0_8x8，则对L1参考帧进行细化操作
                         x264_me_refine_qpel( h, &analysis.l1.me8x16[i] );
                 }
             }
             else if( i_partition == D_8x8 )
-            {
+            {   //如果分区类型为D_8x8，循环遍历4个子分区
                 for( int i = 0; i < 4; i++ )
                 {
                     x264_me_t *m;
@@ -3547,12 +3546,12 @@ skip_analysis:
                     if( x264_mb_partition_listX_table[0][i_part_type] )
                     {
                         m = &analysis.l0.me8x8[i];
-                        i_part_cost_old = m->cost;
-                        i_type_cost = analysis.i_lambda * i_sub_mb_b_cost_table[D_L0_8x8];
+                        i_part_cost_old = m->cost;//根据子分区的类型选择相应的参考帧和代价表
+                        i_type_cost = analysis.i_lambda * i_sub_mb_b_cost_table[D_L0_8x8];//根据预测的代价和lambda值调整代价
                         m->cost -= i_type_cost;
-                        x264_me_refine_qpel( h, m );
+                        x264_me_refine_qpel( h, m );//调用x264_me_refine_qpel函数进行亚像素级的细化操作
                         if( !b_bidir )
-                            analysis.i_cost8x8bi += m->cost + i_type_cost - i_part_cost_old;
+                            analysis.i_cost8x8bi += m->cost + i_type_cost - i_part_cost_old;//根据细化后的代价和调整后的代价，更新analysis.i_cost8x8bi的值
                     }
                     if( x264_mb_partition_listX_table[1][i_part_type] )
                     {
@@ -3571,11 +3570,11 @@ skip_analysis:
             i_satd_inter = i_cost;
 
             if( analysis.i_mbrd )
-            {
+            {   //则调用mb_analyse_b_rd函数对帧间和帧内分析的结果进行比较
                 mb_analyse_b_rd( h, &analysis, i_satd_inter );
                 i_type = B_SKIP;
                 i_cost = i_bskip_cost;
-                i_partition = D_16x16;
+                i_partition = D_16x16;//选择最佳的模式和分区类型。根据不同的比较结果，更新i_type和i_partition的值
                 COPY2_IF_LT( i_cost, analysis.l0.i_rd16x16, i_type, B_L0_L0 );
                 COPY2_IF_LT( i_cost, analysis.l1.i_rd16x16, i_type, B_L1_L1 );
                 COPY2_IF_LT( i_cost, analysis.i_rd16x16bi, i_type, B_BI_BI );
@@ -3589,14 +3588,14 @@ skip_analysis:
             }
 
             if( h->mb.b_chroma_me )
-            {
+            {   //如果h->mb.b_chroma_me为真，表示需要进行色度运动估计，根据色度格式的不同，调用相应的函数进行帧内分析
                 if( CHROMA444 )
                 {
                     mb_analyse_intra( h, &analysis, i_satd_inter );
                     mb_analyse_intra_chroma( h, &analysis );
                 }
                 else
-                {
+                {   //先进行色度帧内分析，然后进行帧内分析。最后，更新帧内分析的总代价
                     mb_analyse_intra_chroma( h, &analysis );
                     mb_analyse_intra( h, &analysis, i_satd_inter - analysis.i_satd_chroma );
                 }
@@ -3608,53 +3607,53 @@ skip_analysis:
                 mb_analyse_intra( h, &analysis, i_satd_inter );
 
             if( analysis.i_mbrd )
-            {
+            {   //调用mb_analyse_transform_rd函数对变换系数进行分析，并更新i_satd_inter和i_cost的值
                 mb_analyse_transform_rd( h, &analysis, &i_satd_inter, &i_cost );
-                intra_rd( h, &analysis, i_satd_inter * 17/16 + 1 );
+                intra_rd( h, &analysis, i_satd_inter * 17/16 + 1 );//调用intra_rd函数进行帧内模式的进一步细化
             }
-
+            //根据不同的比较结果，更新帧内分析的总代价和帧内模式类型
             COPY2_IF_LT( i_cost, analysis.i_satd_i16x16, i_type, I_16x16 );
             COPY2_IF_LT( i_cost, analysis.i_satd_i8x8, i_type, I_8x8 );
             COPY2_IF_LT( i_cost, analysis.i_satd_i4x4, i_type, I_4x4 );
             COPY2_IF_LT( i_cost, analysis.i_satd_pcm, i_type, I_PCM );
-
+            //根据帧内分析的结果更新当前宏块的类型和分区类型
             h->mb.i_type = i_type;
             h->mb.i_partition = i_partition;
 
             if( analysis.i_mbrd >= 2 && IS_INTRA( i_type ) && i_type != I_PCM )
-                intra_rd_refine( h, &analysis );
-            if( h->mb.i_subpel_refine >= 5 )
+                intra_rd_refine( h, &analysis );//则调用intra_rd_refine函数对帧内模式进行细化
+            if( h->mb.i_subpel_refine >= 5 )//如果h->mb.i_subpel_refine大于等于5，则调用refine_bidir函数对双向运动估计进行细化
                 refine_bidir( h, &analysis );
 
             if( analysis.i_mbrd >= 2 && i_type > B_DIRECT && i_type < B_SKIP )
-            {
+            {   //如果analysis.i_mbrd大于等于2，并且i_type的取值在B_DIRECT和B_SKIP之间，进入条件判断的代码块
                 int i_biweight;
-                analyse_update_cache( h, &analysis );
-
+                analyse_update_cache( h, &analysis );//调用analyse_update_cache函数更新缓存
+                //然后根据不同的分区类型和帧内模式类型，调用相应的函数进行细化操作
                 if( i_partition == D_16x16 )
-                {
+                {   //如果分区类型是D_16x16，根据i_type的值进行不同的处理
                     if( i_type == B_L0_L0 )
-                    {
+                    {   //如果i_type是B_L0_L0，则更新L0参考帧的16x16运动估计代价，并调用x264_me_refine_qpel_rd函数对L0参考帧的16x16运动估计进行细化
                         analysis.l0.me16x16.cost = i_cost;
                         x264_me_refine_qpel_rd( h, &analysis.l0.me16x16, analysis.i_lambda2, 0, 0 );
                     }
                     else if( i_type == B_L1_L1 )
-                    {
+                    {   //如果i_type是B_L1_L1，则更新L1参考帧的16x16运动估计代价，并调用x264_me_refine_qpel_rd函数对L1参考帧的16x16运动估计进行细化
                         analysis.l1.me16x16.cost = i_cost;
                         x264_me_refine_qpel_rd( h, &analysis.l1.me16x16, analysis.i_lambda2, 0, 1 );
                     }
                     else if( i_type == B_BI_BI )
-                    {
+                    {   //如果i_type是B_BI_BI，则获取L0和L1参考帧的权重，并调用x264_me_refine_bidir_rd函数对双向运动估计进行细化
                         i_biweight = h->mb.bipred_weight[analysis.l0.bi16x16.i_ref][analysis.l1.bi16x16.i_ref];
                         x264_me_refine_bidir_rd( h, &analysis.l0.bi16x16, &analysis.l1.bi16x16, i_biweight, 0, analysis.i_lambda2 );
                     }
                 }
-                else if( i_partition == D_16x8 )
+                else if( i_partition == D_16x8 )//如果分区类型是D_16x8
                 {
                     for( int i = 0; i < 2; i++ )
-                    {
+                    {   //则根据analysis.i_mb_partition16x8数组的值进行循环处理
                         h->mb.i_sub_partition[i*2] = h->mb.i_sub_partition[i*2+1] = analysis.i_mb_partition16x8[i];
-                        if( analysis.i_mb_partition16x8[i] == D_L0_8x8 )
+                        if( analysis.i_mb_partition16x8[i] == D_L0_8x8 )//根据每个分区的类型，调用相应的函数进行细化操作，包括更新参考帧的运动估计代价并调用x264_me_refine_qpel_rd或x264_me_refine_bidir_rd函数进行细化
                             x264_me_refine_qpel_rd( h, &analysis.l0.me16x8[i], analysis.i_lambda2, i*8, 0 );
                         else if( analysis.i_mb_partition16x8[i] == D_L1_8x8 )
                             x264_me_refine_qpel_rd( h, &analysis.l1.me16x8[i], analysis.i_lambda2, i*8, 1 );
@@ -3665,7 +3664,7 @@ skip_analysis:
                         }
                     }
                 }
-                else if( i_partition == D_8x16 )
+                else if( i_partition == D_8x16 )//如果分区类型是D_8x16
                 {
                     for( int i = 0; i < 2; i++ )
                     {
@@ -3681,7 +3680,7 @@ skip_analysis:
                         }
                     }
                 }
-                else if( i_partition == D_8x8 )
+                else if( i_partition == D_8x8 )//如果分区类型是D_8x8
                 {
                     for( int i = 0; i < 4; i++ )
                     {
@@ -3699,31 +3698,31 @@ skip_analysis:
             }
         }
     }
-
+    //调用了analyse_update_cache函数来更新缓存
     analyse_update_cache( h, &analysis );
-
+    //接下来的代码块用于处理一种特殊情况，即在进行四分块运动估计时，可能会通过细化操作回到较大的分区大小，但没有意识到这一点。为了解决这个问题，进行了以下操作
     /* In rare cases we can end up qpel-RDing our way back to a larger partition size
      * without realizing it.  Check for this and account for it if necessary. */
-    if( analysis.i_mbrd >= 2 )
+    if( analysis.i_mbrd >= 2 )//如果analysis.i_mbrd大于等于2，进入条件判断的代码块
     {
         /* Don't bother with bipred or 8x8-and-below, the odds are incredibly low. */
-        static const uint8_t check_mv_lists[X264_MBTYPE_MAX] = {[P_L0]=1, [B_L0_L0]=1, [B_L1_L1]=2};
-        int list = check_mv_lists[h->mb.i_type] - 1;
+        static const uint8_t check_mv_lists[X264_MBTYPE_MAX] = {[P_L0]=1, [B_L0_L0]=1, [B_L1_L1]=2};//根据当前宏块的类型h->mb.i_type，确定需要检查的运动矢量列表。在这种情况下，只检查P_L0、B_L0_L0和B_L1_L1这三种类型的运动矢量列表
+        int list = check_mv_lists[h->mb.i_type] - 1;//如果满足以下条件，则将当前宏块的分区类型设置为D_16x16
         if( list >= 0 && h->mb.i_partition != D_16x16 &&
             M32( &h->mb.cache.mv[list][x264_scan8[0]] ) == M32( &h->mb.cache.mv[list][x264_scan8[12]] ) &&
             h->mb.cache.ref[list][x264_scan8[0]] == h->mb.cache.ref[list][x264_scan8[12]] )
                 h->mb.i_partition = D_16x16;
     }
 
-    if( !analysis.i_mbrd )
+    if( !analysis.i_mbrd )//如果analysis.i_mbrd为0，则调用mb_analyse_transform函数进行宏块变换分析
         mb_analyse_transform( h );
 
-    if( analysis.i_mbrd == 3 && !IS_SKIP(h->mb.i_type) )
+    if( analysis.i_mbrd == 3 && !IS_SKIP(h->mb.i_type) )//如果analysis.i_mbrd为3且当前宏块类型不是SKIP类型，则调用mb_analyse_qp_rd函数进行QP值优化
         mb_analyse_qp_rd( h, &analysis );
 
     h->mb.b_trellis = h->param.analyse.i_trellis;
     h->mb.b_noise_reduction = h->mb.b_noise_reduction || (!!h->param.analyse.i_noise_reduction && !IS_INTRA( h->mb.i_type ));
-
+    //如果当前宏块类型不是SKIP类型且h->mb.i_psy_trellis不为0且h->param.analyse.i_trellis为1，则调用psy_trellis_init函数进行心理学优化
     if( !IS_SKIP(h->mb.i_type) && h->mb.i_psy_trellis && h->param.analyse.i_trellis == 1 )
         psy_trellis_init( h, 0 );
     if( h->mb.b_trellis == 1 || h->mb.b_noise_reduction )

@@ -129,12 +129,12 @@ median:
 void x264_mb_predict_mv_16x16( x264_t *h, int i_list, int i_ref, int16_t mvp[2] )
 {
     int     i_refa = h->mb.cache.ref[i_list][X264_SCAN8_0 - 1];
-    int16_t *mv_a  = h->mb.cache.mv[i_list][X264_SCAN8_0 - 1];
+    int16_t *mv_a  = h->mb.cache.mv[i_list][X264_SCAN8_0 - 1];//i_refa和mv_a对应于当前宏块的左侧8x8块的参考帧和运动矢量
     int     i_refb = h->mb.cache.ref[i_list][X264_SCAN8_0 - 8];
-    int16_t *mv_b  = h->mb.cache.mv[i_list][X264_SCAN8_0 - 8];
+    int16_t *mv_b  = h->mb.cache.mv[i_list][X264_SCAN8_0 - 8];//i_refb和mv_b对应于当前宏块的上方8x8块的参考帧和运动矢量
     int     i_refc = h->mb.cache.ref[i_list][X264_SCAN8_0 - 8 + 4];
-    int16_t *mv_c  = h->mb.cache.mv[i_list][X264_SCAN8_0 - 8 + 4];
-    if( i_refc == -2 )
+    int16_t *mv_c  = h->mb.cache.mv[i_list][X264_SCAN8_0 - 8 + 4];//i_refc和mv_c对应于当前宏块的右上方8x8块的参考帧和运动矢量
+    if( i_refc == -2 )//如果其值为-2，则表示该块不可用，需要替换为左上方8x8块的左侧8x8块的参考帧和运动矢量
     {
         i_refc = h->mb.cache.ref[i_list][X264_SCAN8_0 - 8 - 1];
         mv_c   = h->mb.cache.mv[i_list][X264_SCAN8_0 - 8 - 1];
@@ -143,23 +143,23 @@ void x264_mb_predict_mv_16x16( x264_t *h, int i_list, int i_ref, int16_t mvp[2] 
     int i_count = (i_refa == i_ref) + (i_refb == i_ref) + (i_refc == i_ref);
 
     if( i_count > 1 )
-    {
+    {//如果有两个或三个可用，执行x264_median_mv函数对三个运动矢量进行中位数运算，将结果保存在mvp中
 median:
         x264_median_mv( mvp, mv_a, mv_b, mv_c );
     }
     else if( i_count == 1 )
-    {
+    {   //如果只有一个参考帧和运动矢量与当前参考帧相同，将该运动矢量复制到mvp中
         if( i_refa == i_ref )
             CP32( mvp, mv_a );
         else if( i_refb == i_ref )
             CP32( mvp, mv_b );
         else
             CP32( mvp, mv_c );
-    }
+    }//如果右上方和上方8x8块的参考帧和运动矢量不可用，但左侧8x8块的参考帧和运动矢量可用，将左侧8x8块的运动矢量复制到mvp中
     else if( i_refb == -2 && i_refc == -2 && i_refa != -2 )
         CP32( mvp, mv_a );
     else
-        goto median;
+        goto median;//如果以上条件都不满足，执行中位数操作
 }
 
 
@@ -517,7 +517,7 @@ int x264_mb_predict_mv_direct16x16( x264_t *h, int *b_changed )
 
 /* This just improves encoder performance, it's not part of the spec */
 void x264_mb_predict_mv_ref16x16( x264_t *h, int i_list, int i_ref, int16_t (*mvc)[2], int *i_mvc )
-{
+{   //函数首先从宏块的运动矢量参考数组mvr中获取当前参考帧和运动矢量的索引mvr[i_list][i_ref]
     int16_t (*mvr)[2] = h->mb.mvr[i_list][i_ref];
     int i = 0;
 
@@ -537,13 +537,13 @@ void x264_mb_predict_mv_ref16x16( x264_t *h, int i_list, int i_ref, int16_t (*mv
         i++; \
     }
 
-    /* b_direct */
+    /* b_direct *///如果当前帧类型为B帧且参考帧列表中第12个位置的参考帧与当前参考帧相等，则将该位置的运动矢量复制到mvc数组中
     if( h->sh.i_type == SLICE_TYPE_B
         && h->mb.cache.ref[i_list][x264_scan8[12]] == i_ref )
     {
         SET_MVP( h->mb.cache.mv[i_list][x264_scan8[12]] );
     }
-
+    //如果当前参考帧为0且当前帧拥有低分辨率运动矢量，则从低分辨率运动矢量中获取对应位置的运动矢量，并将其复制到mvc数组中
     if( i_ref == 0 && h->frames.b_have_lowres )
     {
         int idx = i_list ? h->fref[1][0]->i_frame-h->fenc->i_frame-1
@@ -568,7 +568,7 @@ void x264_mb_predict_mv_ref16x16( x264_t *h, int i_list, int i_ref, int16_t (*mv
         SET_IMVP( h->mb.i_mb_topright_xy );
     }
     else
-    {
+    {   //同样依次获取左侧、上方、左上方和右上方宏块的运动矢量，并将其复制到mvc数组中
         SET_MVP( mvr[h->mb.i_mb_left_xy[0]] );
         SET_MVP( mvr[h->mb.i_mb_top_xy] );
         SET_MVP( mvr[h->mb.i_mb_topleft_xy] );
@@ -603,5 +603,5 @@ void x264_mb_predict_mv_ref16x16( x264_t *h, int i_list, int i_ref, int16_t (*mv
 #undef SET_TMVP
     }
 
-    *i_mvc = i;
+    *i_mvc = i;//将预测得到的运动矢量数量存储在i_mvc变量中，并返回结果
 }

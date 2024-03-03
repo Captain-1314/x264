@@ -2756,16 +2756,16 @@ static intptr_t slice_write( x264_t *h )
     /* NALUs other than the first use a 3-byte startcode.
      * Add one extra byte for the rbsp, and one more for the final CABAC putbyte.
      * Then add an extra 5 bytes just in case, to account for random NAL escapes and
-     * other inaccuracies. */
+     * other inaccuracies. *///计算了额外的开销（overhead_guess），该开销用于估计NAL单元的大小
     int overhead_guess = (NALU_OVERHEAD - (h->param.b_annexb && h->out.i_nal)) + 1 + h->param.b_cabac + 5;
     int slice_max_size = h->param.i_slice_max_size > 0 ? (h->param.i_slice_max_size-overhead_guess)*8 : 0;
     int back_up_bitstream_cavlc = !h->param.b_cabac && h->sps->i_profile_idc < PROFILE_HIGH;
-    int back_up_bitstream = slice_max_size || back_up_bitstream_cavlc;
-    int starting_bits = bs_pos(&h->out.bs);
-    int b_deblock = h->sh.i_disable_deblocking_filter_idc != 1;
-    int b_hpel = h->fdec->b_kept_as_ref;
-    int orig_last_mb = h->sh.i_last_mb;
-    int thread_last_mb = h->i_threadslice_end * h->mb.i_mb_width - 1;
+    int back_up_bitstream = slice_max_size || back_up_bitstream_cavlc;//如果最大片大小大于0或者使用的是CABAC，并且压缩参数配置文件小于高级别，就需要备份比特流
+    int starting_bits = bs_pos(&h->out.bs);//代码保存了当前比特流的位置（starting_bits）
+    int b_deblock = h->sh.i_disable_deblocking_filter_idc != 1;//确定是否需要进行去块滤波
+    int b_hpel = h->fdec->b_kept_as_ref;//半像素估计
+    int orig_last_mb = h->sh.i_last_mb;//保存了当前片的最后一个宏块的索引（orig_last_mb）
+    int thread_last_mb = h->i_threadslice_end * h->mb.i_mb_width - 1;//线程片结束的宏块索引
     uint8_t *last_emu_check;
 #define BS_BAK_SLICE_MAX_SIZE 0
 #define BS_BAK_CAVLC_OVERFLOW 1
@@ -2773,28 +2773,28 @@ static intptr_t slice_write( x264_t *h )
 #define BS_BAK_ROW_VBV        3
     x264_bs_bak_t bs_bak[4];
     b_deblock &= b_hpel || h->param.b_full_recon || h->param.psz_dump_yuv;
-    bs_realign( &h->out.bs );
+    bs_realign( &h->out.bs );//并重新对齐比特流
 
-    /* Slice */
+    /* Slice *///开始编写一个片（nal_start），并设置该片的第一个宏块索引（i_first_mb）
     nal_start( h, h->i_nal_type, h->i_nal_ref_idc );
     h->out.nal[h->out.i_nal].i_first_mb = h->sh.i_first_mb;
 
-    /* Slice header */
+    /* Slice header *///初始化宏块线程
     x264_macroblock_thread_init( h );
-
+    //并将QP设置为片中的第一个宏块的QP，以便更准确地初始化CABAC编码器
     /* Set the QP equal to the first QP in the slice for more accurate CABAC initialization. */
     h->mb.i_mb_xy = h->sh.i_first_mb;
     h->sh.i_qp = x264_ratecontrol_mb_qp( h );
-    h->sh.i_qp = SPEC_QP( h->sh.i_qp );
-    h->sh.i_qp_delta = h->sh.i_qp - h->pps->i_pic_init_qp;
+    h->sh.i_qp = SPEC_QP( h->sh.i_qp );//保存当前QP值
+    h->sh.i_qp_delta = h->sh.i_qp - h->pps->i_pic_init_qp;//QP的变化值
 
     slice_header_write( &h->out.bs, &h->sh, h->i_nal_ref_idc );
     if( h->param.b_cabac )
     {
-        /* alignment needed */
+        /* alignment needed *///进行对齐操作
         bs_align_1( &h->out.bs );
 
-        /* init cabac */
+        /* init cabac *///初始化CABAC上下文和编码器
         x264_cabac_context_init( h, &h->cabac, h->sh.i_type, x264_clip3( h->sh.i_qp-QP_BD_OFFSET, 0, 51 ), h->sh.i_cabac_init_idc );
         x264_cabac_encode_init ( &h->cabac, h->out.bs.p, h->out.bs.p_end );
         last_emu_check = h->cabac.p;
@@ -2803,40 +2803,40 @@ static intptr_t slice_write( x264_t *h )
         last_emu_check = h->out.bs.p;
     h->mb.i_last_qp = h->sh.i_qp;
     h->mb.i_last_dqp = 0;
-    h->mb.field_decoding_flag = 0;
+    h->mb.field_decoding_flag = 0;//将场解码标志设置为0
 
     i_mb_y = h->sh.i_first_mb / h->mb.i_mb_width;
     i_mb_x = h->sh.i_first_mb % h->mb.i_mb_width;
     i_skip = 0;
 
     while( 1 )
-    {
+    {   //计算当前宏块的索引（mb_xy）和比特流的位置（mb_spos）
         mb_xy = i_mb_x + i_mb_y * h->mb.i_mb_width;
         int mb_spos = bs_pos(&h->out.bs) + x264_cabac_pos(&h->cabac);
 
-        if( i_mb_x == 0 )
-        {
+        if( i_mb_x == 0 )//当前宏块是一行的第一个宏块
+        {   //检查比特流缓冲区是否需要重新分配空间
             if( bitstream_check_buffer( h ) )
                 return -1;
-            if( !(i_mb_y & SLICE_MBAFF) && h->param.rc.i_vbv_buffer_size )
+            if( !(i_mb_y & SLICE_MBAFF) && h->param.rc.i_vbv_buffer_size )//如果不是SLICE_MBAFF（宏块自适应帧/场），并且码率控制参数中设置了VBV缓冲区大小，则备份比特流（bitstream_backup）以保存当前位置
                 bitstream_backup( h, &bs_bak[BS_BAK_ROW_VBV], i_skip, 1 );
-            if( !h->mb.b_reencode_mb )
+            if( !h->mb.b_reencode_mb )//如果不是重新编码的宏块，则进行滤波处理
                 fdec_filter_row( h, i_mb_y, 0 );
         }
 
         if( back_up_bitstream )
-        {
+        {   //如果使用CABAC编码且使用CABAC备份比特流，则备份比特流
             if( back_up_bitstream_cavlc )
                 bitstream_backup( h, &bs_bak[BS_BAK_CAVLC_OVERFLOW], i_skip, 0 );
             if( slice_max_size && !(i_mb_y & SLICE_MBAFF) )
-            {
+            {   //如果设置了最大片大小且不是SLICE_MBAFF，备份比特流，如果当前宏块是片中最后的宏块，且剩余的宏块数量等于片最小宏块数
                 bitstream_backup( h, &bs_bak[BS_BAK_SLICE_MAX_SIZE], i_skip, 0 );
                 if( (thread_last_mb+1-mb_xy) == h->param.i_slice_min_mbs )
                     bitstream_backup( h, &bs_bak[BS_BAK_SLICE_MIN_MBS], i_skip, 0 );
             }
         }
 
-        if( PARAM_INTERLACED )
+        if( PARAM_INTERLACED )//是否使用交错编码
         {
             if( h->mb.b_adaptive_mbaff )
             {
@@ -2857,42 +2857,42 @@ static intptr_t slice_write( x264_t *h )
             x264_macroblock_cache_load_interlaced( h, i_mb_x, i_mb_y );
         else
             x264_macroblock_cache_load_progressive( h, i_mb_x, i_mb_y );
-
+        //宏块分析
         x264_macroblock_analyse( h );
 
         /* encode this macroblock -> be careful it can change the mb type to P_SKIP if needed */
 reencode:
         x264_macroblock_encode( h );
 
-        if( h->param.b_cabac )
-        {
+        if( h->param.b_cabac )//如果使用CABAC编码
+        {   //如果当前宏块不是第一个宏块且不是SLICE_MBAFF的奇数行，进行CABAC编码的终止处理
             if( mb_xy > h->sh.i_first_mb && !(SLICE_MBAFF && (i_mb_y&1)) )
                 x264_cabac_encode_terminal( &h->cabac );
-
+            //如果当前宏块是跳过类型的，调用CABAC编码的宏块跳过处理
             if( IS_SKIP( h->mb.i_type ) )
                 x264_cabac_mb_skip( h, 1 );
             else
-            {
+            {   //如果片类型不是I类型，调用CABAC编码的宏块跳过处理
                 if( h->sh.i_type != SLICE_TYPE_I )
                     x264_cabac_mb_skip( h, 0 );
                 x264_macroblock_write_cabac( h, &h->cabac );
             }
         }
         else
-        {
+        {   //如果使用CAVLC编码
             if( IS_SKIP( h->mb.i_type ) )
-                i_skip++;
+                i_skip++;//增加跳过计数
             else
             {
                 if( h->sh.i_type != SLICE_TYPE_I )
-                {
+                {   //写入跳过计数（iskip）作为无运动矢量的跳过宏块的运行长度
                     bs_write_ue( &h->out.bs, i_skip );  /* skip run */
-                    i_skip = 0;
+                    i_skip = 0;//清零跳过计数
                 }
                 x264_macroblock_write_cavlc( h );
                 /* If there was a CAVLC level code overflow, try again at a higher QP. */
-                if( h->mb.b_overflow )
-                {
+                if( h->mb.b_overflow )//如果发生CAVLC级别码溢出，则尝试使用更高的量化参数（QP）重新编码
+                {   //增加色度QP索引
                     h->mb.i_chroma_qp = h->chroma_qp_table[++h->mb.i_qp];
                     h->mb.i_skip_intra = 0;
                     h->mb.b_skip_mc = 0;
@@ -2902,27 +2902,27 @@ reencode:
                 }
             }
         }
-
+        //使用bs_pos函数计算比特流的当前位置，并使用x264_cabac_pos函数计算CABAC编码的比特数，将它们相加得到总比特数
         int total_bits = bs_pos(&h->out.bs) + x264_cabac_pos(&h->cabac);
-        int mb_size = total_bits - mb_spos;
+        int mb_size = total_bits - mb_spos;//通过减去宏块的起始比特位置（mb_spos）得到宏块的大小
 
         if( slice_max_size && (!SLICE_MBAFF || (i_mb_y&1)) )
-        {
+        {   //如果设置了最大片大小且不是SLICE_MBAFF的奇数行
             /* Count the skip run, just in case. */
             if( !h->param.b_cabac )
                 total_bits += bs_size_ue_big( i_skip );
-            /* Check for escape bytes. */
+            /* Check for escape bytes. *///检查是否存在转义字节
             uint8_t *end = h->param.b_cabac ? h->cabac.p : h->out.bs.p;
             for( ; last_emu_check < end - 2; last_emu_check++ )
                 if( last_emu_check[0] == 0 && last_emu_check[1] == 0 && last_emu_check[2] <= 3 )
-                {
-                    slice_max_size -= 8;
-                    last_emu_check++;
+                {   //从上次检查转义字节的位置（last_emu_check）开始遍历比特流，检查是否出现了转义字节（0x0000 00~03）
+                    slice_max_size -= 8;//如果出现了转义字节，则减去8个比特（slice_max_size -= 8）
+                    last_emu_check++;//将last_emu_check增加1
                 }
             /* We'll just re-encode this last macroblock if we go over the max slice size. */
             if( total_bits - starting_bits > slice_max_size && !h->mb.b_reencode_mb )
-            {
-                if( !x264_frame_new_slice( h, h->fdec ) )
+            {   //如果总比特数减去起始比特数大于最大片大小，并且当前宏块不需要重新编码
+                if( !x264_frame_new_slice( h, h->fdec ) )//如果无法创建新的片（slice）
                 {
                     /* Handle the most obnoxious slice-min-mbs edge case: we need to end the slice
                      * because it's gone over the maximum size, but doing so would violate slice-min-mbs.
@@ -2936,20 +2936,20 @@ reencode:
                             x264_log( h, X264_LOG_WARNING, "slice-max-size violated (frame %d, cause: slice-min-mbs)\n", h->i_frame );
                             slice_max_size = 0;
                             goto cont;
-                        }
+                        }//如果可行，回滚到上一个检查点（checkpoint）并重新尝试
                         bitstream_restore( h, &bs_bak[BS_BAK_SLICE_MIN_MBS], &i_skip, 0 );
                         h->mb.b_reencode_mb = 1;
                         h->sh.i_last_mb = thread_last_mb-h->param.i_slice_min_mbs;
                         break;
                     }
                     if( mb_xy-SLICE_MBAFF*h->mb.i_mb_stride != h->sh.i_first_mb )
-                    {
+                    {   //如果可行，回滚到上一个检查点（checkpoint）并重新尝试
                         bitstream_restore( h, &bs_bak[BS_BAK_SLICE_MAX_SIZE], &i_skip, 0 );
                         h->mb.b_reencode_mb = 1;
                         if( SLICE_MBAFF )
                         {
                             // set to bottom of previous mbpair
-                            if( i_mb_x )
+                            if( i_mb_x )//更新最后一个宏块的索引
                                 h->sh.i_last_mb = mb_xy-1+h->mb.i_mb_stride*(!(i_mb_y&1));
                             else
                                 h->sh.i_last_mb = (i_mb_y-2+!(i_mb_y&1))*h->mb.i_mb_stride + h->mb.i_mb_width - 1;
@@ -2965,30 +2965,30 @@ reencode:
                     slice_max_size = 0;
             }
         }
-cont:
+cont:   //将h->mb.b_reencode_mb设置为0，表示当前宏块不需要重新编码
         h->mb.b_reencode_mb = 0;
 
-        /* save cache */
+        /* save cache *///保存宏块的缓存状态
         x264_macroblock_cache_save( h );
-
+        //通过调用x264_ratecontrol_mb函数对宏块进行码率控制，如果返回值小于0，则表示码率控制失败
         if( x264_ratecontrol_mb( h, mb_size ) < 0 )
-        {
+        {   //恢复比特流到之前备份的位置（bitstream_restore函数）
             bitstream_restore( h, &bs_bak[BS_BAK_ROW_VBV], &i_skip, 1 );
-            h->mb.b_reencode_mb = 1;
+            h->mb.b_reencode_mb = 1;//将h->mb.b_reencode_mb设置为1，表示需要重新编码宏块
             i_mb_x = 0;
             i_mb_y = i_mb_y - SLICE_MBAFF;
             h->mb.i_mb_prev_xy = i_mb_y * h->mb.i_mb_stride - 1;
-            h->sh.i_last_mb = orig_last_mb;
+            h->sh.i_last_mb = orig_last_mb;//继续下一个循环，处理下一个宏块
             continue;
         }
 
         /* accumulate mb stats */
-        h->stat.frame.i_mb_count[h->mb.i_type]++;
+        h->stat.frame.i_mb_count[h->mb.i_type]++;//更新帧的宏块计数
 
         int b_intra = IS_INTRA( h->mb.i_type );
         int b_skip = IS_SKIP( h->mb.i_type );
         if( h->param.i_log_level >= X264_LOG_INFO || h->param.rc.b_stat_write )
-        {
+        {   ///根据配置的日志级别和统计信息写入标志，更新宏块分区和参考帧计数
             if( !b_intra && !b_skip && !IS_DIRECT( h->mb.i_type ) )
             {
                 if( h->mb.i_partition != D_8x8 )
@@ -3024,7 +3024,7 @@ cont:
                             }
                 }
                 else
-                {
+                {   //计算亮度cbp的总和
                     int cbpsum = (h->mb.i_cbp_luma&1) + ((h->mb.i_cbp_luma>>1)&1)
                                + ((h->mb.i_cbp_luma>>2)&1) + (h->mb.i_cbp_luma>>3);
                     h->stat.frame.i_mb_cbp[!b_intra + 0] += cbpsum;
@@ -3038,7 +3038,7 @@ cont:
                 h->stat.frame.i_mb_count_8x8dct[1] += h->mb.b_transform_8x8;
             }
             if( b_intra && h->mb.i_type != I_PCM )
-            {
+            {   //如果是帧内预测（b_intra为真）且宏块类型不是I_PCM，根据预测模式更新统计信息
                 if( h->mb.i_type == I_16x16 )
                     h->stat.frame.i_mb_pred_mode[0][h->mb.i_intra16x16_pred_mode]++;
                 else if( h->mb.i_type == I_8x8 )
@@ -3053,12 +3053,12 @@ cont:
         }
 
         /* calculate deblock strength values (actual deblocking is done per-row along with hpel) */
-        if( b_deblock )
-            x264_macroblock_deblock_strength( h );
-
+        if( b_deblock )//检查是否需要进行去块滤波
+            x264_macroblock_deblock_strength( h );//计算去块滤波的强度值
+        //检查当前宏块是否是片的最后一个宏块（mb_xy == h->sh.i_last_mb）。如果是最后一个宏块，跳出循环
         if( mb_xy == h->sh.i_last_mb )
             break;
-
+        //根据片的类型（SLICE_MBAFF）更新当前宏块的坐标（i_mb_x和i_mb_y）
         if( SLICE_MBAFF )
         {
             i_mb_x += i_mb_y & 1;
@@ -3067,18 +3067,18 @@ cont:
         else
             i_mb_x++;
         if( i_mb_x == h->mb.i_mb_width )
-        {
+        {   //检查是否遍历完了一行宏块。如果是，将i_mb_y加1，i_mb_x重置为0
             i_mb_y++;
             i_mb_x = 0;
         }
-    }
+    }//当完成所有宏块的处理后，如果h->sh.i_last_mb小于h->sh.i_first_mb，返回0
     if( h->sh.i_last_mb < h->sh.i_first_mb )
         return 0;
-
+    //更新输出NAL单元的最后一个宏块索引
     h->out.nal[h->out.i_nal].i_last_mb = h->sh.i_last_mb;
-
+    //根据参数配置选择使用CABAC编码还是CAVLC编码
     if( h->param.b_cabac )
-    {
+    {   //调用x264_cabac_encode_flush函数将剩余的CABAC上下文进行编码，并将输出结果赋给输出比特流
         x264_cabac_encode_flush( h, &h->cabac );
         h->out.bs.p = h->cabac.p;
     }
@@ -3089,34 +3089,34 @@ cont:
         /* rbsp_slice_trailing_bits */
         bs_rbsp_trailing( &h->out.bs );
         bs_flush( &h->out.bs );
-    }
+    }//NAL单元的结束标记生成失败
     if( nal_end( h ) )
         return -1;
-
+    //接下来，如果当前切片的最后一个宏块是整个线程切片的最后一个宏块
     if( h->sh.i_last_mb == (h->i_threadslice_end * h->mb.i_mb_width - 1) )
-    {
+    {   //计算杂项比特数
         h->stat.frame.i_misc_bits = bs_pos( &h->out.bs )
                                   + (h->out.i_nal*NALU_OVERHEAD * 8)
                                   - h->stat.frame.i_tex_bits
                                   - h->stat.frame.i_mv_bits;
-        fdec_filter_row( h, h->i_threadslice_end, 0 );
-
+        fdec_filter_row( h, h->i_threadslice_end, 0 );//对当前切片的最后一行进行滤波
+        //如果启用了分片线程
         if( h->param.b_sliced_threads )
         {
             /* Tell the main thread we're done. */
-            x264_threadslice_cond_broadcast( h, 1 );
-            /* Do hpel now */
+            x264_threadslice_cond_broadcast( h, 1 );//向主线程广播当前线程已完成
+            /* Do hpel now *///进行水平像素预测滤波
             for( int mb_y = h->i_threadslice_start; mb_y <= h->i_threadslice_end; mb_y++ )
                 fdec_filter_row( h, mb_y, 1 );
-            x264_threadslice_cond_broadcast( h, 2 );
+            x264_threadslice_cond_broadcast( h, 2 );//等待所有线程完成hpel滤波
             /* Do the first row of hpel, now that the previous slice is done */
             if( h->i_thread_idx > 0 )
-            {
+            {   //如果当前线程不是第一个线程，等待前一个线程完成
                 x264_threadslice_cond_wait( h->thread[h->i_thread_idx-1], 2 );
                 fdec_filter_row( h, h->i_threadslice_start + (1 << SLICE_MBAFF), 2 );
             }
         }
-
+        //如果启用了分片线程并且当前线程是最后一个线程，释放宏块信息（mb_info）的内存
         /* Free mb info after the last thread's done using it */
         if( h->fdec->mb_info_free && (!h->param.b_sliced_threads || h->i_thread_idx == (h->param.i_threads-1)) )
         {

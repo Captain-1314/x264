@@ -166,7 +166,7 @@ static ALWAYS_INLINE void x264_mb_encode_i4x4( x264_t *h, int p, int idx, int i_
 }
 
 static ALWAYS_INLINE void x264_mb_encode_i8x8( x264_t *h, int p, int idx, int i_qp, int i_mode, pixel *edge, int b_predict )
-{
+{   //根据块的索引idx计算块的位置x和y，然后获取源块和目标块的指针。同时定义了一些用于存储中间结果的数组
     int x = idx&1;
     int y = idx>>1;
     int nz;
@@ -174,42 +174,42 @@ static ALWAYS_INLINE void x264_mb_encode_i8x8( x264_t *h, int p, int idx, int i_
     pixel *p_dst = &h->mb.pic.p_fdec[p][8*x + 8*y*FDEC_STRIDE];
     ALIGNED_ARRAY_64( dctcoef, dct8x8,[64] );
     ALIGNED_ARRAY_32( pixel, edge_buf,[36] );
-
+    //如果需要进行预测（b_predict为真）
     if( b_predict )
     {
-        if( !edge )
+        if( !edge )//如果没有提供边界信息（edge为空），则使用h->predict_8x8_filter函数进行边界滤波，并将结果存储在edge_buf数组中
         {
             h->predict_8x8_filter( p_dst, edge_buf, h->mb.i_neighbour8[idx], x264_pred_i4x4_neighbors[i_mode] );
             edge = edge_buf;
         }
 
-        if( h->mb.b_lossless )
+        if( h->mb.b_lossless )//如果当前帧是无损编码模式
             x264_predict_lossless_8x8( h, p_dst, p, idx, i_mode, edge );
-        else
+        else//调用预测函数h->predict_8x8[i_mode]进行预测
             h->predict_8x8[i_mode]( p_dst, edge );
     }
 
-    if( h->mb.b_lossless )
-    {
+    if( h->mb.b_lossless )//如果当前帧是无损编码模式（h->mb.b_lossless为真）
+    {   //调用h->zigzagf.sub_8x8函数对源块进行无损编码，并获取非零系数个数nz
         nz = h->zigzagf.sub_8x8( h->dct.luma8x8[p*4+idx], p_src, p_dst );
-        STORE_8x8_NNZ( p, idx, nz );
+        STORE_8x8_NNZ( p, idx, nz );//更新非零系数标记h->mb.i_cbp_luma和非零系数个数存储位置
         h->mb.i_cbp_luma |= nz<<idx;
         return;
     }
-
+    //调用h->dctf.sub8x8_dct8函数对源块进行DCT变换，并将结果存储在dct8x8数组中
     h->dctf.sub8x8_dct8( dct8x8, p_src, p_dst );
-
+    //调用x264_quant_8x8函数对DCT系数进行量化，并获取非零系数个数nz
     nz = x264_quant_8x8( h, dct8x8, i_qp, ctx_cat_plane[DCT_LUMA_8x8][p], 1, p, idx );
     if( nz )
-    {
-        h->mb.i_cbp_luma |= 1<<idx;
-        h->zigzagf.scan_8x8( h->dct.luma8x8[p*4+idx], dct8x8 );
-        h->quantf.dequant_8x8( dct8x8, h->dequant8_mf[p?CQM_8IC:CQM_8IY], i_qp );
-        h->dctf.add8x8_idct8( p_dst, dct8x8 );
+    {   //如果存在非零系数
+        h->mb.i_cbp_luma |= 1<<idx;//更新非零系数标记h->mb.i_cbp_luma和非零系数个数存储位置
+        h->zigzagf.scan_8x8( h->dct.luma8x8[p*4+idx], dct8x8 );//调用h->zigzagf.scan_8x8函数对DCT系数进行扫描（Zigzag顺序）
+        h->quantf.dequant_8x8( dct8x8, h->dequant8_mf[p?CQM_8IC:CQM_8IY], i_qp );//调用h->quantf.dequant_8x8函数对量化后的DCT系数进行反量化
+        h->dctf.add8x8_idct8( p_dst, dct8x8 );//调用h->dctf.add8x8_idct8函数对反量化后的DCT系数进行逆变换，并将结果存储在目标块中
         STORE_8x8_NNZ( p, idx, 1 );
     }
     else
-        STORE_8x8_NNZ( p, idx, 0 );
+        STORE_8x8_NNZ( p, idx, 0 );//否则，表示全零系数
 }
 
 #endif

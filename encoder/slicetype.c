@@ -1996,20 +1996,20 @@ int x264_rc_analyse_slice( x264_t *h )
     assert( cost >= 0 );
 
     if( h->param.rc.b_mb_tree && !h->param.rc.b_stat_read )
-    {
+    {   //重新计算帧成本（cost）
         cost = slicetype_frame_cost_recalculate( h, frames, p0, p1, b );
-        if( b && h->param.rc.i_vbv_buffer_size )
+        if( b && h->param.rc.i_vbv_buffer_size )//则重新计算帧成本（cost）
             slicetype_frame_cost_recalculate( h, frames, b, b, b );
     }
     /* In AQ, use the weighted score instead. */
-    else if( h->param.rc.i_aq_mode )
+    else if( h->param.rc.i_aq_mode )//如果启用了自适应量化模式（AQ mode），则使用加权分数进行计算
         cost = frames[b]->i_cost_est_aq[b-p0][p1-b];
 
     h->fenc->i_row_satd = h->fenc->i_row_satds[b-p0][p1-b];
     h->fdec->i_row_satd = h->fdec->i_row_satds[b-p0][p1-b];
     h->fdec->i_satd = cost;
     memcpy( h->fdec->i_row_satd, h->fenc->i_row_satd, h->mb.i_mb_height * sizeof(int) );
-    if( !IS_X264_TYPE_I(h->fenc->i_type) )
+    if( !IS_X264_TYPE_I(h->fenc->i_type) )//如果当前帧不是I帧，则将h->fenc->i_row_satds[0][0]的值复制到h->fdec->i_row_satds[0][0]
         memcpy( h->fdec->i_row_satds[0][0], h->fenc->i_row_satds[0][0], h->mb.i_mb_height * sizeof(int) );
 
     if( h->param.b_intra_refresh && h->param.rc.i_vbv_buffer_size && h->fenc->i_type == X264_TYPE_P )

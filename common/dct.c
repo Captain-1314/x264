@@ -155,17 +155,17 @@ static inline void pixel_sub_wxh( dctcoef *diff, int i_size,
 static void sub4x4_dct( dctcoef dct[16], pixel *pix1, pixel *pix2 )
 {
     dctcoef d[16];
-    dctcoef tmp[16];
-
+    dctcoef tmp[16];//首先定义了一个临时数组d和一个中间结果数组tmp，用于存储计算过程中的中间结果
+    //通过调用pixel_sub_wxh函数，计算两个4x4块的像素差值，将结果存储在数组d中，pix1和pix2分别表示两个4x4块的像素数组，FENC_STRIDE和FDEC_STRIDE表示对应的步长
     pixel_sub_wxh( d, 4, pix1, FENC_STRIDE, pix2, FDEC_STRIDE );
-
+    //使用两次循环遍历，分别对tmp数组和最终结果数组dct进行计算
     for( int i = 0; i < 4; i++ )
-    {
-        int s03 = d[i*4+0] + d[i*4+3];
-        int s12 = d[i*4+1] + d[i*4+2];
-        int d03 = d[i*4+0] - d[i*4+3];
-        int d12 = d[i*4+1] - d[i*4+2];
-
+    {   //第一个循环遍历对tmp数组进行计算。对于每个4x4块中的每一行
+        int s03 = d[i*4+0] + d[i*4+3];//s03：第0列和第3列的和
+        int s12 = d[i*4+1] + d[i*4+2];//s12：第1列和第2列的和
+        int d03 = d[i*4+0] - d[i*4+3];//d03：第0列和第3列的差值
+        int d12 = d[i*4+1] - d[i*4+2];//d12：第1列和第2列的差值
+        //然后将这些值按照特定的公式计算得到中间结果，并存储在tmp数组中
         tmp[0*4+i] =   s03 +   s12;
         tmp[1*4+i] = 2*d03 +   d12;
         tmp[2*4+i] =   s03 -   s12;
@@ -173,12 +173,12 @@ static void sub4x4_dct( dctcoef dct[16], pixel *pix1, pixel *pix2 )
     }
 
     for( int i = 0; i < 4; i++ )
-    {
-        int s03 = tmp[i*4+0] + tmp[i*4+3];
-        int s12 = tmp[i*4+1] + tmp[i*4+2];
-        int d03 = tmp[i*4+0] - tmp[i*4+3];
-        int d12 = tmp[i*4+1] - tmp[i*4+2];
-
+    {   //第二个循环遍历对最终结果数组dct进行计算。对于每个4x4块中的每一列
+        int s03 = tmp[i*4+0] + tmp[i*4+3];//s03：第0行和第3行的和
+        int s12 = tmp[i*4+1] + tmp[i*4+2];//s12：第1行和第2行的和
+        int d03 = tmp[i*4+0] - tmp[i*4+3];//d03：第0行和第3行的差值
+        int d12 = tmp[i*4+1] - tmp[i*4+2];//d12：第1行和第2行的差值
+        //然后将这些值按照特定的公式计算得到最终的DCT系数，并存储在dct数组中
         dct[i*4+0] =   s03 +   s12;
         dct[i*4+1] = 2*d03 +   d12;
         dct[i*4+2] =   s03 -   s12;

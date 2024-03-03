@@ -125,24 +125,24 @@ static ALWAYS_INLINE int array_non_zero( dctcoef *v, int i_count )
 
 static void mb_encode_i16x16( x264_t *h, int p, int i_qp )
 {
-    pixel *p_src = h->mb.pic.p_fenc[p];
+    pixel *p_src = h->mb.pic.p_fenc[p];//定义了指向输入帧和输出帧的指针p_src和p_dst
     pixel *p_dst = h->mb.pic.p_fdec[p];
 
-    ALIGNED_ARRAY_64( dctcoef, dct4x4,[16],[16] );
+    ALIGNED_ARRAY_64( dctcoef, dct4x4,[16],[16] );//用于存储DCT系数的数组dct4x4和dct_dc4x4
     ALIGNED_ARRAY_64( dctcoef, dct_dc4x4,[16] );
 
-    int nz, block_cbp = 0;
-    int decimate_score = h->mb.b_dct_decimate ? 0 : 9;
-    int i_quant_cat = p ? CQM_4IC : CQM_4IY;
-    int i_mode = h->mb.i_intra16x16_pred_mode;
+    int nz, block_cbp = 0;//非零系数的数量nz、块的CBP（coded block pattern）值
+    int decimate_score = h->mb.b_dct_decimate ? 0 : 9;//降采样得分decimate_score
+    int i_quant_cat = p ? CQM_4IC : CQM_4IY;//量化矩阵的类别i_quant_cat
+    int i_mode = h->mb.i_intra16x16_pred_mode;//16x16内预测模式i_mode
 
-    if( h->mb.b_lossless )
-        x264_predict_lossless_16x16( h, p, i_mode );
+    if( h->mb.b_lossless )//当前帧是无损模式
+        x264_predict_lossless_16x16( h, p, i_mode );//调用x264_predict_lossless_16x16函数进行16x16预测
     else
         h->predict_16x16[i_mode]( h->mb.pic.p_fdec[p] );
 
     if( h->mb.b_lossless )
-    {
+    {   //如果当前帧是无损模式，执行无损编码的逻辑，遍历每个4x4块，计算非零系数的数量，更新非零系数计数数组和块的CBP值
         for( int i = 0; i < 16; i++ )
         {
             int oe = block_idx_xy_fenc[i];
@@ -158,13 +158,13 @@ static void mb_encode_i16x16( x264_t *h, int p, int i_qp )
     }
 
     CLEAR_16x16_NNZ( p );
-
+    //如果当前帧不是无损模式，执行有损编码的逻辑，先对16x16块进行DCT变换
     h->dctf.sub16x16_dct( dct4x4, p_src, p_dst );
-
+    //如果启用了噪声减弱（noise reduction），则对DCT系数进行噪声减弱处理
     if( h->mb.b_noise_reduction )
         for( int idx = 0; idx < 16; idx++ )
             h->quantf.denoise_dct( dct4x4[idx], h->nr_residual_sum[0], h->nr_offset[0], 16 );
-
+    //遍历每个4x4块，将DCT系数的直流分量存入dct_dc4x4数组，并将DCT系数的直流分量置零
     for( int idx = 0; idx < 16; idx++ )
     {
         dct_dc4x4[block_idx_xy_1d[idx]] = dct4x4[idx][0];
@@ -172,12 +172,12 @@ static void mb_encode_i16x16( x264_t *h, int p, int i_qp )
     }
 
     if( h->mb.b_trellis )
-    {
+    {   //启用了Trellis量化，则使用循环遍历每个4x4块，调用x264_quant_4x4_trellis函数进行Trellis量化
         for( int idx = 0; idx < 16; idx++ )
             if( x264_quant_4x4_trellis( h, dct4x4[idx], i_quant_cat, i_qp, ctx_cat_plane[DCT_LUMA_AC][p], 1, !!p, idx ) )
-            {
-                block_cbp = 0xf;
-                h->zigzagf.scan_4x4( h->dct.luma4x4[16*p+idx], dct4x4[idx] );
+            {   //果返回值为真，表示该块经过Trellis量化后非零系数的数量发生了变化
+                block_cbp = 0xf;//将块的CBP值设置为0xf（即全部块都有非零系数
+                h->zigzagf.scan_4x4( h->dct.luma4x4[16*p+idx], dct4x4[idx] );//然后执行扫描、反量化和判定非零系数的操作
                 h->quantf.dequant_4x4( dct4x4[idx], h->dequant4_mf[i_quant_cat], i_qp );
                 if( decimate_score < 6 ) decimate_score += h->quantf.decimate_score15( h->dct.luma4x4[16*p+idx] );
                 h->mb.cache.non_zero_count[x264_scan8[16*p+idx]] = 1;
@@ -186,11 +186,11 @@ static void mb_encode_i16x16( x264_t *h, int p, int i_qp )
     else
     {
         for( int i8x8 = 0; i8x8 < 4; i8x8++ )
-        {
+        {   //如果未启用Trellis量化，则使用循环遍历每个8x8块，调用h->quantf.quant_4x4x4函数进行普通的量化。该函数返回非零系数的数量
             nz = h->quantf.quant_4x4x4( &dct4x4[i8x8*4], h->quant4_mf[i_quant_cat][i_qp], h->quant4_bias[i_quant_cat][i_qp] );
             if( nz )
             {
-                block_cbp = 0xf;
+                block_cbp = 0xf;//如果非零系数的数量大于0，将块的CBP值设置为0xf，然后执行扫描、反量化和判定非零系数的操作
                 FOREACH_BIT( idx, i8x8*4, nz )
                 {
                     h->zigzagf.scan_4x4( h->dct.luma4x4[16*p+idx], dct4x4[idx] );
@@ -205,22 +205,22 @@ static void mb_encode_i16x16( x264_t *h, int p, int i_qp )
     /* Writing the 16 CBFs in an i16x16 block is quite costly, so decimation can save many bits. */
     /* More useful with CAVLC, but still useful with CABAC. */
     if( decimate_score < 6 )
-    {
+    {   //如果decimate_score小于6，表示减采样得分低于阈值，执行减采样的逻辑。首先将16x16块的非零系数数量清零，将块的CBP值设置为0，表示该块没有非零系数
         CLEAR_16x16_NNZ( p );
         block_cbp = 0;
     }
-    else
+    else//将块的CBP值加入到h->mb.i_cbp_luma中，表示该块存在非零系数
         h->mb.i_cbp_luma |= block_cbp;
-
+    //调用h->dctf.dct4x4dc函数对16x16块的直流分量进行DCT变换
     h->dctf.dct4x4dc( dct_dc4x4 );
     if( h->mb.b_trellis )
         nz = x264_quant_luma_dc_trellis( h, dct_dc4x4, i_quant_cat, i_qp, ctx_cat_plane[DCT_LUMA_DC][p], 1, LUMA_DC+p );
-    else
+    else//调用h->quantf.quant_4x4_dc函数进行普通的直流分量量化。返回值nz表示非零系数的数量
         nz = h->quantf.quant_4x4_dc( dct_dc4x4, h->quant4_mf[i_quant_cat][i_qp][0]>>1, h->quant4_bias[i_quant_cat][i_qp][0]<<1 );
-
+    //更新块的非零系数计数数组
     h->mb.cache.non_zero_count[x264_scan8[LUMA_DC+p]] = nz;
     if( nz )
-    {
+    {   //如果非零系数的数量大于0，执行扫描、反量化和判定非零系数的操作。将DCT系数按照扫描顺序重新排列，并将直流分量存入dct_dc4x4数组中
         h->zigzagf.scan_4x4( h->dct.luma16x16_dc[p], dct_dc4x4 );
 
         /* output samples to fdec */
@@ -232,9 +232,9 @@ static void mb_encode_i16x16( x264_t *h, int p, int i_qp )
     }
 
     /* put pixels to fdec */
-    if( block_cbp )
+    if( block_cbp )//如果block_cbp（块的CBP值）为真，则调用h->dctf.add16x16_idct函数将反量化后的DCT系数加到输出帧p_dst中
         h->dctf.add16x16_idct( p_dst, dct4x4 );
-    else if( nz )
+    else if( nz )//如果block_cbp为假且非零系数的数量大于0，则调用h->dctf.add16x16_idct_dc函数将反量化后的直流分量加到输出帧p_dst中
         h->dctf.add16x16_idct_dc( p_dst, dct_dc4x4 );
 }
 

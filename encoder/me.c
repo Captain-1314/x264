@@ -181,17 +181,17 @@ do\
 
 void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, int *p_halfpel_thresh )
 {
-    const int bw = x264_pixel_size[m->i_pixel].w;
+    const int bw = x264_pixel_size[m->i_pixel].w;//块的宽度和高度（bw和bh）
     const int bh = x264_pixel_size[m->i_pixel].h;
-    const int i_pixel = m->i_pixel;
-    const int stride = m->i_stride[0];
-    int i_me_range = h->param.analyse.i_me_range;
+    const int i_pixel = m->i_pixel;//像素大小
+    const int stride = m->i_stride[0];//步长
+    int i_me_range = h->param.analyse.i_me_range;//运动估计范围
     int bmx, bmy, bcost = COST_MAX;
     int bpred_cost = COST_MAX;
     int omx, omy, pmx, pmy;
     pixel *p_fenc = m->p_fenc[0];
     pixel *p_fref_w = m->p_fref_w;
-    ALIGNED_ARRAY_32( pixel, pix,[16*16] );
+    ALIGNED_ARRAY_32( pixel, pix,[16*16] );//函数计算当前块的像素值，并将其存储在pix数组中
     ALIGNED_ARRAY_8( int16_t, mvc_temp,[16],[2] );
 
     ALIGNED_ARRAY_16( int, costs,[16] );
@@ -215,18 +215,18 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
      * otherwise round them to fullpel. */
     if( h->mb.i_subpel_refine >= 3 )
     {
-        /* Calculate and check the MVP first */
+        /* Calculate and check the MVP first *///预测运动矢量（MVP）。限制MVP在指定的范围内
         int bpred_mx = x264_clip3( m->mvp[0], SPEL(mv_x_min), SPEL(mv_x_max) );
         int bpred_my = x264_clip3( m->mvp[1], SPEL(mv_y_min), SPEL(mv_y_max) );
-        pmv = pack16to32_mask( bpred_mx, bpred_my );
-        pmx = FPEL( bpred_mx );
+        pmv = pack16to32_mask( bpred_mx, bpred_my );//并将其舍入为整像素
+        pmx = FPEL( bpred_mx );//转换为整像素坐标
         pmy = FPEL( bpred_my );
 
-        COST_MV_HPEL( bpred_mx, bpred_my, bpred_cost );
+        COST_MV_HPEL( bpred_mx, bpred_my, bpred_cost );//计算主预测运动矢量的成本，并将其存储在bpred_cost中
         int pmv_cost = bpred_cost;
 
-        if( i_mvc > 0 )
-        {
+        if( i_mvc > 0 )//如果存在额外的运动矢量候选项（i_mvc > 0）
+        {   //则对这些候选项进行剪裁，并排除等于零和主预测运动矢量的候选项。剪裁后的候选项存储在mvc_temp数组中
             /* Clip MV candidates and eliminate those equal to zero and pmv. */
             int valid_mvcs = x264_predictor_clip( mvc_temp+2, mvc, i_mvc, h->mb.mv_limit_fpel, pmv );
             if( valid_mvcs > 0 )
@@ -238,7 +238,7 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
                 M32( mvc_temp[1] ) = pmv;
                 bpred_cost <<= 4;
                 do
-                {
+                {//遍历剪裁后的候选项，并计算每个候选项的成本。将最佳成本和对应的索引存储在bpred_cost中
                     int mx = mvc_temp[i+1][0];
                     int my = mvc_temp[i+1][1];
                     COST_MV_HPEL( mx, my, cost );
@@ -252,16 +252,16 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
 
         /* Round the best predictor back to fullpel and get the cost, since this is where
          * we'll be starting the fullpel motion search. */
-        bmx = FPEL( bpred_mx );
+        bmx = FPEL( bpred_mx );//根据最佳候选项的索引，获取最佳预测运动矢量的舍入全像素坐标（bmx和bmy）
         bmy = FPEL( bpred_my );
-        bpred_mv = pack16to32_mask(bpred_mx, bpred_my);
-        if( bpred_mv&0x00030003 ) /* Only test if the tested predictor is actually subpel... */
+        bpred_mv = pack16to32_mask(bpred_mx, bpred_my);//并将其打包为32位整数
+        if( bpred_mv&0x00030003 ) /* Only test if the tested predictor is actually subpel... *///如果最佳预测运动矢量是子像素级别的，则计算其成本
             COST_MV( bmx, bmy );
         else                          /* Otherwise just copy the cost (we already know it) */
             bcost = bpred_cost;
 
         /* Test the zero vector if it hasn't been tested yet. */
-        if( pmv )
+        if( pmv )//接下来，检查是否需要测试零矢量。如果最佳预测运动矢量非零，则计算零矢量的成本
         {
             if( bmx|bmy ) COST_MV( 0, 0 );
         }
@@ -269,17 +269,17 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
          * fullpel check won't have gotten it even if the pmv was zero. So handle
          * that possibility here. */
         else
-        {
+        {   //如果最佳预测运动矢量为零，则根据之前的比较，判断是否需要更新最佳成本和运动矢量
             COPY3_IF_LT( bcost, pmv_cost, bmx, 0, bmy, 0 );
         }
     }
     else
-    {
-        /* Calculate and check the fullpel MVP first */
-        bmx = pmx = x264_clip3( FPEL(m->mvp[0]), mv_x_min, mv_x_max );
+    {   //处理h->mb.i_subpel_refine小于3的情况，即只使用整像素级别的预测器
+        /* Calculate and check the fullpel MVP first *///计算并检查完整像素级别的主预测运动矢量（MVP）。将MVP限制在指定的范围内
+        bmx = pmx = x264_clip3( FPEL(m->mvp[0]), mv_x_min, mv_x_max );//并将其舍入为整像素（bmx和bmy）。然后，将舍入后的运动矢量（pmx和pmy）转换为全像素坐标
         bmy = pmy = x264_clip3( FPEL(m->mvp[1]), mv_y_min, mv_y_max );
-        pmv = pack16to32_mask( bmx, bmy );
-
+        pmv = pack16to32_mask( bmx, bmy );//将舍入后的主预测运动矢量打包为32位整数（pmv）
+        //因为将预测的运动矢量舍入为整像素，所以在16个案例中会有一个额外的MV成本。然而，当选择预测的MV作为最佳预测器时，通常情况下，子像素搜索会得到一个接近或与预测的运动矢量相邻的矢量。因此，为了避免对使用预测的运动矢量进行不公平的偏见，我们省略了舍入后MVP的MV成本
         /* Because we are rounding the predicted motion vector to fullpel, there will be
          * an extra MV cost in 15 out of 16 cases.  However, when the predicted MV is
          * chosen as the best predictor, it is often the case that the subpel search will
@@ -288,10 +288,10 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
          * the predicted motion vector.
          *
          * Disclaimer: this is a post-hoc rationalization for why this hack works. */
-        bcost = h->pixf.fpelcmp[i_pixel]( p_fenc, FENC_STRIDE, &p_fref_w[bmy*stride+bmx], stride );
+        bcost = h->pixf.fpelcmp[i_pixel]( p_fenc, FENC_STRIDE, &p_fref_w[bmy*stride+bmx], stride );//根据选择的像素比较函数（h->pixf.fpelcmp[i_pixel]），计算舍入后的MVP与当前帧像素的成本，并将其存储在bcost中
 
-        if( i_mvc > 0 )
-        {
+        if( i_mvc > 0 )//如果存在额外的运动矢量候选项（i_mvc > 0）
+        {   //则将这些候选项舍入为整像素级别，并进行类似于subme>=3的处理
             /* Like in subme>=3, except we also round the candidates to fullpel. */
             int valid_mvcs = x264_predictor_roundclip( mvc_temp+2, mvc, i_mvc, h->mb.mv_limit_fpel, pmv );
             if( valid_mvcs > 0 )
@@ -300,7 +300,7 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
                 M32( mvc_temp[1] ) = pmv;
                 bcost <<= 4;
                 do
-                {
+                {   //遍历舍入后的候选项，并计算每个候选项与当前帧像素的成本。将最佳成本和对应的索引存储在bcost中
                     int mx = mvc_temp[i+1][0];
                     int my = mvc_temp[i+1][1];
                     cost = h->pixf.fpelcmp[i_pixel]( p_fenc, FENC_STRIDE, &p_fref_w[my*stride+mx], stride ) + BITS_MVD( mx, my );
@@ -313,38 +313,38 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
         }
 
         /* Same as above, except the condition is simpler. */
-        if( pmv )
+        if( pmv )//如果主预测运动矢量非零，则计算零矢量的成本
             COST_MV( 0, 0 );
     }
 
     switch( h->mb.i_me_method )
     {
-        case X264_ME_DIA:
+        case X264_ME_DIA://这段代码实现了钻石搜索算法
         {
-            /* diamond search, radius 1 */
-            bcost <<= 4;
+            /* diamond search, radius 1 *///半径为1
+            bcost <<= 4;//将当前的成本（bcost）左移4位，以便在每一步中存储16个子块的成本
             int i = i_me_range;
             do
-            {
+            {   //使用钻石搜索算法在半径为1的范围内进行运动矢量的搜索。在每一步中，计算四个方向（左、右、上、下）的子块的成本，并与当前最佳成本进行比较。如果有更低的成本，则更新当前最佳成本（bcost
                 COST_MV_X4_DIR( 0,-1, 0,1, -1,0, 1,0, costs );
                 COPY1_IF_LT( bcost, (costs[0]<<4)+1 );
                 COPY1_IF_LT( bcost, (costs[1]<<4)+3 );
                 COPY1_IF_LT( bcost, (costs[2]<<4)+4 );
                 COPY1_IF_LT( bcost, (costs[3]<<4)+12 );
-                if( !(bcost&15) )
+                if( !(bcost&15) )//如果当前最佳成本的低4位为0（即成本没有变化），则跳出循环，结束搜索
                     break;
-                bmx -= (int32_t)((uint32_t)bcost<<28)>>30;
+                bmx -= (int32_t)((uint32_t)bcost<<28)>>30;//在每一步中，根据当前最佳成本的低4位，计算运动矢量的偏移量，并更新运动矢量的坐标（bmx和bmy）
                 bmy -= (int32_t)((uint32_t)bcost<<30)>>30;
-                bcost &= ~15;
+                bcost &= ~15;//将当前最佳成本的低4位清零，以准备下一步的比较
             } while( --i && CHECK_MVRANGE(bmx, bmy) );
-            bcost >>= 4;
+            bcost >>= 4;//将当前最佳成本的低4位清零，以准备下一步的比较
             break;
         }
 
         case X264_ME_HEX:
-        {
+        {//六边形搜索（hexagon search）算法
     me_hex2:
-            /* hexagon search, radius 2 */
+            /* hexagon search, radius 2 *///半径为2
     #if 0
             for( int i = 0; i < i_me_range/2; i++ )
             {
@@ -363,7 +363,7 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
     #else
             /* equivalent to the above, but eliminates duplicate candidates */
 
-            /* hexagon */
+            /* hexagon *///先计算六边形的成本，然后选择最佳的运动矢量
             COST_MV_X3_DIR( -2,0, -1, 2,  1, 2, costs   );
             COST_MV_X3_DIR(  2,0,  1,-2, -1,-2, costs+4 ); /* +4 for 16-byte alignment */
             bcost <<= 3;
@@ -379,7 +379,7 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
                 int dir = (bcost&7)-2;
                 bmx += hex2[dir+1][0];
                 bmy += hex2[dir+1][1];
-
+                //在每一步中，计算三个方向的子块的成本，并与当前最佳成本进行比较
                 /* half hexagon, not overlapping the previous iteration */
                 for( int i = (i_me_range>>1) - 1; i > 0 && CHECK_MVRANGE(bmx, bmy); i-- )
                 {
@@ -391,7 +391,7 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
                     COPY1_IF_LT( bcost, (costs[0]<<3)+1 );
                     COPY1_IF_LT( bcost, (costs[1]<<3)+2 );
                     COPY1_IF_LT( bcost, (costs[2]<<3)+3 );
-                    if( !(bcost&7) )
+                    if( !(bcost&7) )//如果没有更低的成本或者达到了最佳成本（低3位为0），则跳出循环，结束搜索
                         break;
                     dir += (bcost&7)-2;
                     dir = mod6m1[dir+1];
@@ -401,7 +401,7 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
             }
             bcost >>= 3;
     #endif
-            /* square refine */
+            /* square refine *///最后，进行方形细化搜索，计算方形周围的子块的成本，并更新运动矢量的坐标
             bcost <<= 4;
             COST_MV_X4_DIR(  0,-1,  0,1, -1,0, 1,0, costs );
             COPY1_IF_LT( bcost, (costs[0]<<4)+1 );
@@ -415,7 +415,7 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
             COPY1_IF_LT( bcost, (costs[3]<<4)+8 );
             bmx += square1[bcost&15][0];
             bmy += square1[bcost&15][1];
-            bcost >>= 4;
+            bcost >>= 4;//最终，将当前最佳成本右移4位，得到最终的运动矢量成本（bcost）
             break;
         }
 
@@ -771,26 +771,26 @@ void x264_me_search_ref( x264_t *h, x264_me_t *m, int16_t (*mvc)[2], int i_mvc, 
         break;
     }
 
-    /* -> qpel mv */
+    /* -> qpel mv *///首先将六边形搜索得到的运动矢量(bmx, bmy)通过pack16to32_mask函数打包为一个32位的运动矢量bmv
     uint32_t bmv = pack16to32_mask(bmx,bmy);
-    uint32_t bmv_spel = SPELx2(bmv);
+    uint32_t bmv_spel = SPELx2(bmv);//接着，将bmv扩展为一个更加精确的运动矢量bmv_spel。这里使用了函数SPELx2对bmv进行扩展
     if( h->mb.i_subpel_refine < 3 )
-    {
+    {   //计算运动矢量的代价m->cost_mv，代价计算方式是通过查表p_cost_mvx和p_cost_mvy获得bmx和bmy对应的代价，并进行累加
         m->cost_mv = p_cost_mvx[bmx*4] + p_cost_mvy[bmy*4];
         m->cost = bcost;
-        /* compute the real cost */
+        /* compute the real cost *///如果当前运动矢量bmv等于预测运动矢量pmv，则再将m->cost_mv累加到总代价中
         if( bmv == pmv ) m->cost += m->cost_mv;
-        M32( m->mv ) = bmv_spel;
+        M32( m->mv ) = bmv_spel;//将精细化后的运动矢量bmv_spel赋值给m->mv，其中M32(m->mv)是将32位的运动矢量写入内存
     }
     else
     {
         M32(m->mv) = bpred_cost < bcost ? bpred_mv : bmv_spel;
-        m->cost = X264_MIN( bpred_cost, bcost );
+        m->cost = X264_MIN( bpred_cost, bcost );//将总代价m->cost赋值为bpred_cost和bcost中较小的一个
     }
 
-    /* subpel refine */
+    /* subpel refine *///如果h->mb.i_subpel_refine大于等于2，表示还需要进行更精细的亚像素插值处理
     if( h->mb.i_subpel_refine >= 2 )
-    {
+    {   //根据h->mb.i_subpel_refine的值选择相应的亚像素迭代次数，然后调用refine_subpel函数进行亚像素插值处理
         int hpel = subpel_iterations[h->mb.i_subpel_refine][2];
         int qpel = subpel_iterations[h->mb.i_subpel_refine][3];
         refine_subpel( h, m, hpel, qpel, p_halfpel_thresh, 0 );

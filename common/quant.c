@@ -71,15 +71,15 @@ static int quant_4x4( dctcoef dct[16], udctcoef mf[16], udctcoef bias[16] )
 
 static int quant_4x4x4( dctcoef dct[4][16], udctcoef mf[16], udctcoef bias[16] )
 {
-    int nza = 0;
+    int nza = 0;//首先定义了一个变量nza用于记录非零系数的情况。初始值为0
     for( int j = 0; j < 4; j++ )
-    {
+    {   //外层循环for遍历4个4x4块的DCT系数
         int nz = 0;
-        for( int i = 0; i < 16; i++ )
-            QUANT_ONE( dct[j][i], mf[i], bias[i] );
-        nza |= (!!nz)<<j;
+        for( int i = 0; i < 16; i++ )//内层循环for遍历每个4x4块中的16个DCT系数
+            QUANT_ONE( dct[j][i], mf[i], bias[i] );//在内层循环中，调用QUANT_ONE函数对每个DCT系数进行量化
+        nza |= (!!nz)<<j;//如果量化后的系数nz不为零，则将对应的位（!!nz）设置为1
     }
-    return nza;
+    return nza;//返回记录非零系数情况的变量nza
 }
 
 static int quant_4x4_dc( dctcoef dct[16], int mf, int bias )
